@@ -5,7 +5,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { validarConfig } = require('../lib/configuracao');
-const { resolver } = require('../lib/conversa');
+const Eventos = require('../lib/eventos');
 const IA = require('../lib/ia');
 const { criarRegistros } = require('./registros');
 
@@ -99,10 +99,11 @@ function serializar(configPath, tarefa) {
 // Resolve como o workflow: motor de regras e, se ele não entender, a IA (quando houver
 // chave e a IA estiver ligada), respeitando o limite por contato informado pelo navegador.
 async function simularConversa(dados, { chaveIA, fetchIA, usosRecentes }) {
-  const saida = resolver(dados.config, dados.texto, dados.estado || {}, { midia: dados.midia });
+  const bruta = Eventos.resolver(dados.config, dados.texto, dados.estado || {}, { midia: dados.midia, incluirRascunhos: dados.incluirRascunhos === true, eventoId: dados.eventoId || undefined });
+  const { config: configUsada, ...saida } = bruta; // a configuração achatada fica no servidor
   const usos = Number.isInteger(dados.usosIA) && dados.usosIA >= 0 ? dados.usosIA : 0;
-  if (!IA.deveConsultar(dados.config, saida, dados.texto)) return { ...saida, usosIA: usos };
-  const conf = IA.configuracao(dados.config);
+  if (!IA.deveConsultar(configUsada, saida, dados.texto)) return { ...saida, usosIA: usos };
+  const conf = IA.configuracao(configUsada);
   const informar = (resultado) => ({ ...saida, usosIA: usos, ia: { resultado } });
   if (!chaveIA) return informar('sem_chave');
   if (usos >= conf.maxUsosPorContato) return informar('limite_por_contato');
@@ -110,12 +111,12 @@ async function simularConversa(dados, { chaveIA, fetchIA, usosRecentes }) {
   while (usosRecentes.length && agora - usosRecentes[0] > 3600 * 1000) usosRecentes.shift();
   if (usosRecentes.length >= LIMITE_IA_SIMULADOR) return informar('limite_do_simulador');
   usosRecentes.push(agora);
-  const lida = await IA.consultar(dados.config, dados.texto, {
+  const lida = await IA.consultar(configUsada, dados.texto, {
     chave: chaveIA, fetch: fetchIA, fuso: process.env.TZ,
     ultimaIntencao: typeof dados.estado?.ultimaIntencao === 'string' ? dados.estado.ultimaIntencao : '',
   });
   if (!lida.ok) return { ...informar(lida.motivo), usosIA: usos + 1 };
-  const estado = { falhas: 0, ultimaIntencao: 'ia', ultimaResposta: IA.assinatura(lida.texto), pendentes: [] };
+  const estado = { falhas: 0, ultimaIntencao: 'ia', ultimaResposta: IA.assinatura(lida.texto), pendentes: [], evento: saida.estado?.evento, escolhendoEvento: saida.estado?.escolhendoEvento };
   return { intencao: 'ia', origem: 'ia', resposta: lida.texto, transferir: false, estado, usosIA: usos + 1, ia: { resultado: 'respondeu' } };
 }
 
@@ -182,7 +183,7 @@ function criarServidor({ configPath = path.join(__dirname, '../config/chatbot.js
       }
       if (req.method === 'POST' && rota === '/api/simular') {
         const dados = await lerCorpo(req);
-        if (!objeto(dados) || typeof dados.texto !== 'string' || dados.texto.length > 8000 || (dados.estado !== undefined && !objeto(dados.estado)) || (dados.midia !== undefined && typeof dados.midia !== 'boolean' && typeof dados.midia !== 'string') || (dados.usosIA !== undefined && !Number.isInteger(dados.usosIA))) throw erroHttp(400, 'Envie um texto de até 8.000 caracteres e um estado de conversa válido.');
+        if (!objeto(dados) || typeof dados.texto !== 'string' || dados.texto.length > 8000 || (dados.estado !== undefined && !objeto(dados.estado)) || (dados.midia !== undefined && typeof dados.midia !== 'boolean' && typeof dados.midia !== 'string') || (dados.usosIA !== undefined && !Number.isInteger(dados.usosIA)) || (dados.eventoId !== undefined && typeof dados.eventoId !== 'string') || (dados.incluirRascunhos !== undefined && typeof dados.incluirRascunhos !== 'boolean')) throw erroHttp(400, 'Envie um texto de até 8.000 caracteres e um estado de conversa válido.');
         const validacao = validarConfig(dados.config);
         if (validacao.erros.length) throw erroHttp(422, 'Revise a configuração antes de simular.', validacao);
         return responder(res, 200, await simularConversa(dados, { chaveIA, fetchIA, usosRecentes }));

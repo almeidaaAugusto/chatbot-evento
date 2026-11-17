@@ -11,7 +11,10 @@ if (!lida.ok) {
 }
 
 const marca = IA.assinatura(lida.texto);
+// Preserva a escolha de evento da conversa (só existe no formato v2).
 const estado = { falhas: 0, ultimaIntencao: 'ia', ultimaResposta: marca, pendentes: [] };
+if (base.estado && 'evento' in base.estado) estado.evento = base.estado.evento;
+if (base.estado && 'escolhendoEvento' in base.estado) estado.escolhendoEvento = base.estado.escolhendoEvento === true;
 return [{ json: {
   ...base,
   intencao: 'ia',

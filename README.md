@@ -83,6 +83,11 @@ pedir a chave da API, é o valor de `WAHA_API_KEY`.
 
 ## Conteúdo do evento (Caixa Preta)
 
+> O arquivo está no formato de vários eventos (ver a seção **Vários eventos**). O conteúdo abaixo
+> é o do evento **ReQuebra com Caio Prince** (14/11/2026), hoje com status `encerrado`: por isso
+> o robô responde `mensagens.sem_eventos` até que um evento seja ativado. Os campos do evento
+> ficam em `eventos[].evento`; nome, Instagram, e-mail e Linktree da produtora ficam em `produtora`.
+
 O conteúdo de `config/chatbot.json` foi montado a partir do
 [Linktree da produtora](https://linktr.ee/produtoracaixapreta) e da
 [página do evento na Cheers](https://cheers.com.br/evento/requebra-com-caio-prince-35077),
@@ -118,6 +123,69 @@ R$ 40,00** em 10/11/2026; o robô usa o valor da Cheers e sempre manda o link pa
 As informações extras que só a IA usa (e a lista do que ainda **não** foi divulgado, para ela
 não inventar) ficam em `ia.conhecimento` (painel, seção 05).
 
+## Vários eventos
+
+Um único número atende vários eventos da produtora. O arquivo continua sendo um só,
+`config/chatbot.json`, agora no **formato v2** (`"versao": 2`):
+
+- `produtora`: nome, Instagram, e-mail e Linktree. Os campos ficam disponíveis como
+  `{{campo}}` em todos os textos.
+- `mensagens`: textos padrão da produtora (`reativado`, `agradecimento`, `sem_eventos`,
+  `escolher_evento`). Cada evento pode trocar qualquer um deles.
+- `eventos`: a lista de eventos. Cada um tem `id`, `status`, `gatilhos`, `evento` (os campos
+  `{{...}}` dele), `mensagens.menu`, `opcoes`, e, se quiser, `fallback` e
+  `ia.conhecimento` próprios. A IA recebe o conhecimento da produtora (`ia.conhecimento` da
+  raiz) mais o do evento.
+
+Um arquivo sem a chave `eventos` (formato antigo, de um evento só) continua funcionando
+como sempre.
+
+**Status do evento**
+
+| Status | O que acontece |
+|---|---|
+| `rascunho` | O robô não atende; só aparece no simulador do painel |
+| `ativo` | O robô atende |
+| `encerrado` | Arquivado; o robô não usa |
+
+**O que o contato vê**
+
+- Com **um** evento ativo, o robô atende direto nele.
+- Com **mais de um**, o contato recebe a lista (`mensagens.escolher_evento`, com
+  `{{eventos}}` no lugar da lista numerada) e digita o número. O robô lembra a escolha por
+  24 horas.
+- Se a mensagem citar um **gatilho** de um evento (por exemplo "quero ir no requebra"), o
+  robô já entra nesse evento. Se citar gatilhos de mais de um, mostra a lista.
+- Em qualquer momento o contato digita `eventos`, `trocar evento`, `outro evento` ou
+  `mudar evento` para voltar à lista.
+- Sem nenhum evento ativo, o robô responde `mensagens.sem_eventos` (ou agradece, se a
+  mensagem for um agradecimento).
+
+**Criar, ativar e encerrar**
+
+1. Crie o evento como `rascunho` (no painel, "Novo evento" copia o evento selecionado) e
+   teste no simulador, que permite escolher o evento ou incluir rascunhos.
+2. Troque o status para `ativo` e salve. Vale a partir da próxima mensagem.
+3. Depois do evento, troque para `encerrado`. Os dados ficam guardados.
+
+**Gatilhos**: escolha termos que só aquele evento usa (nome do evento, do artista, da
+atração). Eles são comparados sem acento nem maiúsculas, como frase inteira. Dois eventos
+`ativo` não podem repetir o mesmo gatilho. Evite palavras genéricas ("baile", "ingresso").
+
+**Validação**: erro em evento `ativo` bloqueia o salvamento; erros em `rascunho` ou
+`encerrado` viram avisos (prefixados com `eventos[i] (id):`), para que um rascunho
+incompleto não impeça de salvar o resto. Sem evento ativo, o arquivo é aceito, com aviso.
+
+**Converter um arquivo antigo**
+
+```
+node scripts/migrar-config.js config/chatbot.json --id meu-evento --status ativo --gatilhos "termo 1,termo 2" --produtora "Nome da produtora"
+```
+
+Cria o formato v2, guarda o original em `config/chatbot.json.v1.bak` e mostra o resultado
+da validação (não grava se houver erros). Instagram, e-mail e Linktree passam para
+`produtora`; menu, `nao_entendi`, opções e conhecimento da IA vão para o evento.
+
 ## Editar as mensagens prontas
 
 Abra **http://localhost:8080** com o Docker em execução. O painel permite:
@@ -142,7 +210,9 @@ partir da próxima mensagem, sem reiniciar nada.
 
 | Trecho | O que é |
 |---|---|
-| `evento` | Nome, data, horário, local, lote, line-up e links do evento |
+| `produtora` | (v2) Nome, Instagram, e-mail e Linktree, usados em todos os textos |
+| `eventos` | (v2) Lista de eventos: `id`, `status`, `gatilhos`, `evento`, `mensagens.menu`, `opcoes`... |
+| `evento` | (formato antigo) Nome, data, horário, local, lote, line-up e links do evento |
 | `mensagens.menu` | Menu inicial (enviado em saudações e quando o contato digita `menu`) |
 | `mensagens.nao_entendi` | Encaminhamento de compatibilidade quando a terceira etapa do fallback não estiver cadastrada |
 | `fallback.mensagens` | Três etapas distintas: orientar, pedir reformulação e indicar atendimento |
@@ -155,7 +225,7 @@ partir da próxima mensagem, sem reiniciar nada.
 
 Regras para escrever:
 
-- Nas respostas, qualquer campo de `evento` entre chaves duplas (`{{local}}`, `{{data}}`, `{{ingresso}}`, `{{grupo}}`...) é trocado pelo valor cadastrado.
+- Nas respostas, qualquer campo do evento (ou da `produtora`, no formato de vários eventos) entre chaves duplas (`{{local}}`, `{{data}}`, `{{ingresso}}`, `{{grupo}}`...) é trocado pelo valor cadastrado.
 - Opções com `"usar_na_ia": false` não são enviadas à IA (hoje: a lista de fotos, para economizar cota); com `"mostrar_no_menu": false` não aparecem na lista de opções do fallback.
 - Quebra de linha dentro de um texto se escreve `\n`.
 - `palavras_exatas`: a mensagem inteira precisa ser igual (use para números e palavras genéricas).
@@ -404,7 +474,7 @@ maiúsculas e pontuação), mensagens que devem ser ignoradas, duplicidade (incl
 simultâneas), conversas em aberto ao religar, mensagens em sequência, vários contatos ao mesmo tempo, limites, ciclo
 completo de atendimento humano, registro de erros, ausência
 de dados pessoais nos logs de atividade e de erros, o registro das conversas lido pelo painel
-(texto, resposta, nome e telefone no formato real do WAHA GOWS, motivos de silêncio, falha de envio) e o assistente de IA com uma API de IA simulada (resposta, sinal de
+(texto, resposta, nome e telefone no formato real do WAHA GOWS, motivos de silêncio, falha de envio) a escolha entre vários eventos (formato v2, trocando o arquivo de configuração durante o teste) e o assistente de IA com uma API de IA simulada (resposta, sinal de
 "sem resposta", limite por contato, erro 500 e 429, lentidão e link inventado). A configuração usada é a cópia congelada em `tests/config/`,
 então editar `config/chatbot.json` não quebra os testes.
 
@@ -441,14 +511,14 @@ chatbot-evento/
   config/chatbot.json         TEXTOS, PALAVRAS-CHAVE E LIMITES (edite aqui)
   painel/                     painel local (editor e página Conversas), servidor HTTP, leitura dos
                               registros (registros.js) e configurar-ia.js (usado pelo script)
-  lib/                        motor de conversa (conversa.js), assistente de IA (ia.js) e validador
+  lib/                        motor de conversa (conversa.js), vários eventos (eventos.js), assistente de IA (ia.js) e validador
   n8n/
     n8n.env                   configurações não secretas do n8n
     workflows/                workflows exportados (JSON importável)
     codigo/                   código JavaScript dos nós
     montar-workflows.js       gera os JSON a partir de codigo/
     init/                     importação automática e validador da configuração
-  scripts/                    scripts de uso (PowerShell)
+  scripts/                    scripts de uso (PowerShell) e migrar-config.js (v1 para v2)
   tests/                      testes simulados (WAHA simulado + casos)
   logs/                       recebe os logs exportados (ver-logs.ps1 -Exportar)
 ```

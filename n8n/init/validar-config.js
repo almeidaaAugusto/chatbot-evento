@@ -20,7 +20,10 @@ function main(caminho = process.argv[2] || '/files/config/chatbot.json') {
     console.log('Configuração com ' + erros.length + ' erro(s). Corrija antes de usar: enquanto houver erro o chatbot pode ficar sem responder.');
     return 1;
   }
-  console.log('Configuração válida: ' + cfg.opcoes.length + ' opções' + (avisos.length ? ', ' + avisos.length + ' aviso(s).' : '.'));
+  const resumo = Array.isArray(cfg.eventos)
+    ? cfg.eventos.length + ' evento(s), ' + cfg.eventos.filter((ev) => ev && ev.status === 'ativo').length + ' ativo(s)'
+    : cfg.opcoes.length + ' opções';
+  console.log('Configuração válida: ' + resumo + (avisos.length ? ', ' + avisos.length + ' aviso(s).' : '.'));
   return 0;
 }
 

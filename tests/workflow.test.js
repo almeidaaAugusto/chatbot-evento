@@ -183,6 +183,27 @@ const mensagemBase = (texto, config = configDeTeste()) => ({
 const resolverNoWorkflow = async (texto, { config, conversa = null } = {}) => (await codigoDoNo('Resolver conversa')(
   nome => ({ first: () => ({ json: nome === 'Interpretar mensagem' ? mensagemBase(texto, config) : { conversa } }) }), null, relogio))[0].json;
 
+test('workflow no formato v2: escolhe o evento, guarda a escolha no estado e entrega a configuração do evento', async () => {
+  const E = require('../lib/eventos');
+  const v1 = JSON.parse(fs.readFileSync(path.join(__dirname, 'config/chatbot.json'), 'utf8'));
+  let v2 = E.migrarParaV2(v1, { id: 'alfa', gatilhos: ['alfa'], produtora: 'Produtora' });
+  v2.eventos.push({ ...JSON.parse(JSON.stringify(v2.eventos[0])), id: 'beta', gatilhos: ['beta'], evento: { ...v2.eventos[0].evento, nome: 'Beta' } });
+  const resolver = async (texto, conversa = null) => (await codigoDoNo('Resolver conversa')(
+    nome => ({ first: () => ({ json: nome === 'Interpretar mensagem' ? mensagemBase(texto, v2) : { conversa } }) }), null, relogio))[0].json;
+  const menu = await resolver('oi');
+  assert.equal(menu.intencao, 'escolher_evento');
+  assert.equal(JSON.parse(menu.valorConversa).escolhendoEvento, true);
+  assert.equal(menu.ttlConversa, 86400);
+  const escolha = await resolver('2', menu.valorConversa);
+  assert.equal(escolha.intencao, 'menu');
+  assert.equal(escolha.config.evento.nome, 'Beta');
+  assert.equal(JSON.parse(escolha.valorConversa).evento, 'beta');
+  const desconhecida = await resolver('mensagem completamente desconhecida abcxyz', escolha.valorConversa);
+  assert.equal(desconhecida.intencao, 'nao_entendi');
+  assert.equal(JSON.parse(desconhecida.valorConversa).evento, 'beta');
+  assert.equal(desconhecida.config.evento.nome, 'Beta');
+});
+
 test('ramo da IA fica depois do contador por hora e confere os limites antes de chamar', () => {
   assert.equal(destino('Resolver conversa'), 'Redis: contador por hora');
   assert.equal(destino('Redis: contador por hora'), 'Consultar a IA?');

@@ -377,3 +377,78 @@ test('sem pasta de registros a página avisa, e as páginas do painel são servi
   assert.doesNotMatch(script.texto, /innerHTML|insertAdjacentHTML|outerHTML/, 'texto do WhatsApp nunca entra como HTML');
   assert.match((await requisicao(url, '/')).texto, /href="\/conversas"/);
 });
+
+// ---------- configuração v2 (vários eventos) ----------
+
+function exemploV2() {
+  const opcao = { id: 'local', titulo: 'Local do evento', palavras_exatas: ['1'], palavras_chave: ['local'], perguntas: ['Onde acontece o evento?'], resposta: 'Estamos na {{local}}.' };
+  return {
+    versao: 2,
+    produtora: { nome: 'Produtora Teste', instagram: '@produtora', email: 'contato@produtora.example', linktree: 'https://produtora.example/links' },
+    mensagens: { reativado: 'Olá de novo!', agradecimento: 'Obrigado!', nao_entendi: 'Não entendi sua mensagem.', sem_eventos: 'No momento não há eventos.', escolher_evento: 'Escolha um evento:\n{{eventos}}' },
+    fallback: { mensagens: ['Escolha uma opção.', 'Reformule sua pergunta.', 'Fale com a produtora.'], mensagem_midia: 'Escreva sua dúvida.' },
+    eventos: [
+      { id: 'festa-a', status: 'ativo', gatilhos: ['requebra'], evento: { nome: 'Festa A', data: '2026-12-05', local: 'Praça Central' }, mensagens: { menu: 'Menu da Festa A: digite 1 para o local.' }, opcoes: [structuredClone(opcao)] },
+      { id: 'festa-b', status: 'ativo', gatilhos: ['samba'], evento: { nome: 'Festa B', data: '2026-12-12', local: 'Parque B' }, mensagens: { menu: 'Menu da Festa B: digite 1 para o local.' }, opcoes: [structuredClone(opcao)] },
+      { id: 'festa-c', status: 'rascunho', gatilhos: ['cometa'], evento: { nome: 'Festa Cometa', data: '2027-01-09', local: 'Galpão C' }, mensagens: { menu: 'Menu da Cometa: digite 1 para o local.' }, opcoes: [structuredClone(opcao)] }
+    ]
+  };
+}
+
+test('simulador v2: contato novo recebe o menu de eventos e "1" escolhe o primeiro evento ativo', async t => {
+  const { url } = await ambiente(t);
+  const cfg = exemploV2();
+  const menu = await simular(url, { config: cfg, texto: 'oi', estado: {} });
+  assert.equal(menu.status, 200);
+  assert.equal(menu.dados.intencao, 'escolher_evento');
+  assert.equal(menu.dados.estado.escolhendoEvento, true);
+
+  const escolha = await simular(url, { config: cfg, texto: '1', estado: menu.dados.estado });
+  assert.equal(escolha.status, 200);
+  assert.equal(escolha.dados.intencao, 'menu');
+  assert.equal(escolha.dados.estado.evento, 'festa-a');
+  assert.match(escolha.dados.resposta, /Menu da Festa A/);
+});
+
+test('simulador v2: eventoId força rascunho; sem ele o rascunho só entra no menu com incluirRascunhos', async t => {
+  const { url } = await ambiente(t);
+  const cfg = exemploV2();
+
+  const forcado = await simular(url, { config: cfg, texto: 'oi', estado: {}, eventoId: 'festa-c' });
+  assert.equal(forcado.status, 200);
+  assert.equal(forcado.dados.intencao, 'menu');
+  assert.equal(forcado.dados.estado.evento, 'festa-c');
+  assert.match(forcado.dados.resposta, /Menu da Cometa/);
+
+  const padrao = await simular(url, { config: cfg, texto: 'oi', estado: {} });
+  assert.equal(padrao.dados.intencao, 'escolher_evento');
+  assert.doesNotMatch(padrao.dados.resposta, /Cometa/, 'rascunho fora da lista padrão');
+
+  const comRascunhos = await simular(url, { config: cfg, texto: 'oi', estado: {}, incluirRascunhos: true });
+  assert.equal(comRascunhos.dados.intencao, 'escolher_evento');
+  assert.match(comRascunhos.dados.resposta, /Cometa/, 'rascunho entra com incluirRascunhos:true');
+});
+
+test('PUT v2 com rascunho inválido salva com 200 e devolve avisos', async t => {
+  const { url, configPath } = await ambiente(t);
+  await fs.writeFile(configPath, JSON.stringify(exemploV2(), null, 2));
+  const { dados } = await requisicao(url, '/api/config');
+  dados.config.eventos.find(evento => evento.id === 'festa-c').mensagens.menu = '';
+  const salvo = await requisicao(url, '/api/config', { metodo: 'PUT', corpo: dados });
+  assert.equal(salvo.status, 200);
+  assert.ok(Array.isArray(salvo.dados.avisos) && salvo.dados.avisos.length > 0);
+  const gravado = JSON.parse(await fs.readFile(configPath, 'utf8'));
+  assert.equal(gravado.eventos.find(evento => evento.id === 'festa-c').mensagens.menu, '');
+});
+
+test('PUT v2 com evento ativo inválido devolve 422 e não muda o arquivo', async t => {
+  const { url, configPath } = await ambiente(t);
+  await fs.writeFile(configPath, JSON.stringify(exemploV2(), null, 2));
+  const original = await fs.readFile(configPath, 'utf8');
+  const { dados } = await requisicao(url, '/api/config');
+  dados.config.eventos.find(evento => evento.id === 'festa-a').mensagens.menu = '';
+  const res = await requisicao(url, '/api/config', { metodo: 'PUT', corpo: dados });
+  assert.equal(res.status, 422);
+  assert.equal(await fs.readFile(configPath, 'utf8'), original);
+  await assert.rejects(fs.access(configPath + '.bak'), 'nenhum backup é criado quando a gravação é recusada');
+});

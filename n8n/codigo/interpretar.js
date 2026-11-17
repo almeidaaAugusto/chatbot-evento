@@ -13,7 +13,8 @@ try {
   throw new Error('config/chatbot.json inválido ou ilegível: ' + e.message);
 }
 
-const evento = cfg.evento ?? {};
+// No v2 os campos {{...}} das mensagens gerais vêm de "produtora"; no v1, de "evento".
+const evento = cfg.produtora ?? cfg.evento ?? {};
 const mensagens = cfg.mensagens ?? {};
 const humano = cfg.atendimento_humano ?? {};
 const prot = cfg.protecoes ?? {};

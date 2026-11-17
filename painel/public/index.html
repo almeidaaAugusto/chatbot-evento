@@ -25,7 +25,27 @@
     <div class="area-trabalho">
       <div class="coluna-editor">
         <nav class="navegacao" aria-label="Seções do editor"><a href="#dados">Evento</a><a href="#mensagens">Menu</a><a href="#opcoes">Respostas</a><a href="#fallback">Quando não entender</a><a href="#ia">IA</a></nav>
+        <div id="seletor-evento" class="seletor-evento" hidden>
+          <label class="campo-seletor" for="evento-atual"><span>Editando</span><select id="evento-atual" disabled></select></label>
+          <span id="selo-status" class="selo-status" hidden></span>
+          <div class="seletor-acoes"><button id="novo-evento" class="botao botao-secundario" type="button"><span aria-hidden="true">＋</span> Novo evento</button><button id="remover-evento" class="botao botao-discreto" type="button">Remover evento</button></div>
+        </div>
+        <div id="aviso-v1" class="converter" hidden>
+          <p><strong>Quer atender mais de um evento no mesmo número?</strong>Converta este conteúdo para vários eventos. Nada é gravado até você clicar em Salvar.</p>
+          <button id="converter-v2" class="botao botao-secundario" type="button">Converter para vários eventos</button>
+        </div>
         <form id="editor" novalidate>
+          <fieldset id="identidade" class="cartao" disabled hidden>
+            <legend><span class="numero-secao">00</span> Identificação do evento</legend>
+            <p class="descricao">O robô só atende eventos <strong>ativos</strong>. Rascunhos aparecem apenas no simulador e eventos encerrados ficam arquivados. Os gatilhos são palavras que, ditas pelo contato, escolhem este evento.</p>
+            <div id="campos-identidade" class="grade-campos"></div>
+          </fieldset>
+          <fieldset id="produtora-cartao" class="cartao" disabled hidden>
+            <legend><span class="numero-secao">00</span> Produtora e mensagens gerais</legend>
+            <p class="descricao">Valem para todos os eventos. Os campos da produtora podem ser usados como <code>{{instagram}}</code> em qualquer texto.</p>
+            <div id="campos-produtora" class="grade-campos"></div>
+            <div id="campos-mensagens-gerais"></div>
+          </fieldset>
           <fieldset id="dados" class="cartao" disabled>
             <legend><span class="numero-secao">01</span> Dados do evento</legend>
             <p class="descricao">Uma única atualização para todas as respostas. Use os campos entre chaves, como <code>{{local}}</code>, nos seus textos.</p>
@@ -53,6 +73,7 @@
             <legend><span class="numero-secao">05</span> Assistente de IA</legend>
             <p class="descricao">Quando o atendimento não reconhece a mensagem, a IA tenta responder usando só os dados do evento, as respostas acima e as informações extras abaixo. Se ela não souber, valem as orientações da seção 04. Cada contato pode usar a IA poucas vezes, para não estourar a cota gratuita.</p>
             <p id="status-ia" class="status-ia">Verificando a chave da IA…</p>
+            <p id="nota-ia-evento" class="descricao" hidden>Aqui você escreve só o que a IA deve saber sobre este evento. As demais configurações da IA ficam em “Produtora (geral)”.</p>
             <div id="campos-ia"></div>
           </fieldset>
         </form>
@@ -60,6 +81,10 @@
       <aside class="simulador" aria-labelledby="titulo-simulador">
         <div class="simulador-titulo"><div><span class="sobretitulo">PRÉVIA DA CONVERSA</span><h2 id="titulo-simulador">Teste do seu jeito</h2></div><span class="selo">SIMULAÇÃO</span></div>
         <p class="simulador-descricao">Experimente suas alterações aqui antes de salvar.</p>
+        <div id="area-simular-como" class="simular-como" hidden>
+          <label class="campo-seletor" for="simular-como"><span>Simular como</span><select id="simular-como"></select></label>
+          <label id="rotulo-rascunhos" class="marcar-rascunhos"><input id="incluir-rascunhos" type="checkbox"> Incluir rascunhos na escolha do evento</label>
+        </div>
         <div class="conversa">
           <div class="conversa-cabecalho"><span class="avatar" aria-hidden="true">✳</span><div><strong id="nome-conversa">Atendimento do evento</strong><small>Prévia local · nenhuma mensagem é enviada</small></div></div>
           <div id="historico" class="historico" role="log" aria-live="polite" aria-label="Conversa de teste"><div class="inicio-conversa"><span aria-hidden="true">↗</span><p>Que tal começar com um “oi”?</p><small>Digite como se fosse um participante.</small></div></div>
@@ -73,5 +98,8 @@
   </main>
   <footer class="barra-salvar"><div class="barra-conteudo"><div class="situacao"><span id="indicador-salvo" class="indicador" aria-hidden="true"></span><div><strong id="situacao-titulo">Carregando configuração…</strong><small id="situacao-detalhe">Suas alterações só entram em uso depois de salvar.</small></div></div><div class="acoes-salvar"><button id="recarregar" class="botao botao-discreto" type="button">Recarregar</button><button id="salvar" class="botao botao-primario" type="submit" form="editor" disabled>Salvar alterações <span aria-hidden="true">↗</span></button></div></div></footer>
   <dialog id="confirmar-descarte"><form method="dialog"><h2>Descartar suas alterações?</h2><p>Os ajustes que ainda não foram salvos serão perdidos.</p><div class="acoes-dialogo"><button class="botao botao-secundario" value="cancelar">Continuar editando</button><button class="botao botao-primario" value="descartar">Descartar e recarregar</button></div></form></dialog>
+  <dialog id="dialogo-novo"><form method="dialog"><h2>Novo evento</h2><p>O novo evento nasce como rascunho: só aparece no simulador até você ativá-lo.</p><label class="campo"><span>Nome do evento</span><input id="nome-novo" maxlength="120" autocomplete="off"></label><p id="id-novo" class="descricao"></p><div class="acoes-dialogo"><button class="botao botao-secundario" value="cancelar" formnovalidate>Cancelar</button><button id="criar-evento" class="botao botao-primario" value="criar">Criar rascunho</button></div></form></dialog>
+  <dialog id="dialogo-remover"><form method="dialog"><h2>Remover evento?</h2><p id="texto-remover"></p><div class="acoes-dialogo"><button class="botao botao-secundario" value="cancelar">Cancelar</button><button class="botao botao-primario" value="remover">Remover</button></div></form></dialog>
+  <dialog id="dialogo-converter"><form method="dialog"><h2>Converter para vários eventos</h2><p>O evento atual vira o primeiro da lista, como <strong>ativo</strong>. Os dados de contato ficam na produtora. Você ainda pode revisar tudo antes de salvar.</p><label class="campo"><span>Nome da produtora</span><input id="nome-produtora" maxlength="120" autocomplete="off"></label><div class="acoes-dialogo"><button class="botao botao-secundario" value="cancelar">Cancelar</button><button class="botao botao-primario" value="converter">Converter</button></div></form></dialog>
 </body>
 </html>

@@ -986,6 +986,71 @@ async function principal() {
     await aguardar('as ' + total + ' linhas no log', () => contar() === total, 40000).catch(() => {});
     igual(contar(), total, 'linhas distintas gravadas no log');
   });
+  // ---------- vários eventos (configuração v2) ----------
+  // O n8n lê o arquivo a cada mensagem: troca o arquivo de configuração dos testes por uma
+  // versão v2 (dois eventos ativos) e devolve o original no fim, mesmo se algo falhar.
+  secao('Vários eventos (formato v2)');
+  const arquivoCfg = path.join(__dirname, 'config', 'chatbot.json');
+  const original = fs.readFileSync(arquivoCfg, 'utf8');
+  const evento = (id, nome, gatilho, status = 'ativo') => ({
+    id, status, gatilhos: [gatilho],
+    evento: { nome, data: '20/12', local: 'Local do ' + nome },
+    mensagens: { menu: 'Menu do ' + nome + '\n\n{{opcoes}}' },
+    opcoes: cfg.opcoes,
+  });
+  const v2 = (eventos) => ({
+    versao: 2,
+    produtora: { nome: 'Produtora de Teste', instagram: cfg.evento.instagram },
+    mensagens: { reativado: cfg.mensagens.reativado, sem_eventos: 'Sem eventos agora. Veja {{instagram}}' },
+    saudacoes: cfg.saudacoes,
+    atendimento_humano: cfg.atendimento_humano,
+    protecoes: cfg.protecoes,
+    fallback: cfg.fallback,
+    ia: { ...cfg.ia, ativa: false, conhecimento: undefined },
+    eventos,
+  });
+  const usarConfig = async (novo) => {
+    fs.writeFileSync(arquivoCfg, JSON.stringify(novo, null, 2));
+    await dormir(500);
+  };
+  const ultimaResposta = async (conversa) => { const e = await enviosPara(conversa); return e[e.length - 1].corpo.text; };
+  try {
+    await usarConfig(v2([evento('alfa-teste', 'Evento Alfa', 'alfa'), evento('beta-teste', 'Evento Beta', 'beta')]));
+    await teste('v2: contato novo recebe o menu de eventos e escolhe pelo número', async () => {
+      const de = novaConversa();
+      let m = await mandar({ de, texto: 'oi' });
+      igual(m.linha.intencao, 'escolher_evento', 'intenção do menu de eventos');
+      const lista = await ultimaResposta(de);
+      verdadeiro(lista.includes('1 - Evento Alfa (20/12)') && lista.includes('2 - Evento Beta (20/12)'), 'menu deve listar os dois eventos');
+      m = await mandar({ de, texto: '2' });
+      igual(m.linha.intencao, 'menu', 'intenção depois da escolha');
+      verdadeiro((await ultimaResposta(de)).startsWith('Menu do Evento Beta'), 'deve mostrar o menu do evento escolhido');
+      m = await mandar({ de, texto: '3' });
+      igual(m.linha.intencao, 'local', 'opção do evento escolhido');
+      verdadeiro((await ultimaResposta(de)).includes('Local do Evento Beta'), 'a resposta deve usar os dados do evento escolhido');
+    });
+    await teste('v2: gatilho escolhe o evento e a escolha é lembrada nas mensagens seguintes', async () => {
+      const de = novaConversa();
+      let m = await mandar({ de, texto: 'quero saber do alfa' });
+      igual(m.linha.intencao, 'menu', 'intenção do menu do evento');
+      verdadeiro((await ultimaResposta(de)).startsWith('Menu do Evento Alfa'), 'deve mostrar o menu do evento do gatilho');
+      m = await mandar({ de, texto: '3' });
+      verdadeiro((await ultimaResposta(de)).includes('Local do Evento Alfa'), 'o evento escolhido deve ser lembrado');
+      m = await mandar({ de, texto: 'trocar evento' });
+      igual(m.linha.intencao, 'escolher_evento', 'comando de troca de evento');
+    });
+    await usarConfig(v2([evento('alfa-teste', 'Evento Alfa', 'alfa', 'encerrado'), evento('beta-teste', 'Evento Beta', 'beta', 'rascunho')]));
+    await teste('v2: sem evento ativo o robô responde a mensagem da produtora', async () => {
+      const de = novaConversa();
+      const m = await mandar({ de, texto: 'oi' });
+      igual(m.linha.intencao, 'sem_eventos', 'intenção sem eventos');
+      igual(await ultimaResposta(de), 'Sem eventos agora. Veja ' + cfg.evento.instagram, 'texto sem_eventos');
+    });
+  } finally {
+    fs.writeFileSync(arquivoCfg, original);
+    await dormir(500);
+  }
+
   await teste('logs de atividade e de erros não contêm telefones completos nem o texto das mensagens', async () => {
     let bruto = '';
     for (const arquivo of fs.readdirSync(DIR_LOGS)) {

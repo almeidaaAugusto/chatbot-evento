@@ -9,6 +9,29 @@ let salvando = false;
 let simulando = false;
 let sequenciaCampo = 0;
 let usosIA = 0;
+let selecionado = 'produtora'; // v2: índice do evento em edição ou 'produtora'
+const idsNovos = new Set(); // eventos criados nesta sessão (o id ainda pode mudar)
+const nomesStatus = { ativo: 'Ativo', rascunho: 'Rascunho', encerrado: 'Encerrado' };
+const nomesProdutora = { nome: 'Nome da produtora', instagram: 'Instagram', email: 'E-mail', linktree: 'Página com todos os links' };
+const textoSemEventos = 'No momento não temos eventos com atendimento aberto. Acompanhe as novidades no nosso Instagram: {{instagram}}';
+const textoEscolherEvento = 'Sobre qual evento você quer falar?\n\n{{eventos}}\n\nDigite o número do evento.';
+const multi = () => Boolean(config) && Array.isArray(config.eventos);
+const eventoAtual = () => (multi() && typeof selecionado === 'number' ? config.eventos[selecionado] || null : null);
+const emProdutora = () => multi() && !eventoAtual();
+// Partes da configuração que as seções 01 a 05 editam: o v1 inteiro ou o evento selecionado.
+const dadosDoEvento = () => { const ev = eventoAtual(); if (!ev) return (config.evento ||= {}); return (ev.evento ||= {}); };
+const mensagensDoEvento = () => { const ev = eventoAtual(); if (!ev) return (config.mensagens ||= {}); return (ev.mensagens ||= {}); };
+const opcoesDoEvento = () => { const ev = eventoAtual(); if (!ev) return (config.opcoes ||= []); return (ev.opcoes ||= []); };
+const fallbackEditado = () => { const ev = eventoAtual(); if (!ev) return (config.fallback ||= {}); return (ev.fallback ||= {}); };
+const fallbackVigente = () => ({ ...(config.fallback || {}), ...(eventoAtual()?.fallback || {}) });
+const iaEditada = () => { const ev = eventoAtual(); if (!ev) return (config.ia ||= {}); return (ev.ia ||= {}); };
+
+function gerarId(nome, existentes) {
+  const base = String(nome).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 56).replace(/-+$/, '') || 'evento';
+  let id = base; let n = 2;
+  while (existentes.has(id)) id = base + '-' + n++;
+  return id;
+}
 
 const nomesEvento = { nome: 'Nome do evento', data: 'Data', horario: 'Horário de início', termino: 'Término previsto', cidade: 'Cidade', local: 'Local / endereço', ingresso: 'Ingresso e lote atual', lineup: 'Line-up', link_ingressos: 'Link de valores dos ingressos', link_compra: 'Link para comprar', instagram: 'Instagram do atendimento', grupo: 'Grupo oficial (WhatsApp)', linktree: 'Página com todos os links', email: 'E-mail' };
 const camposLargos = ['nome', 'data', 'local', 'ingresso', 'lineup', 'link_ingressos', 'link_compra', 'instagram', 'grupo', 'linktree'];
@@ -26,9 +49,11 @@ function atualizarSituacao() {
   $('#salvar').disabled = !config || !pendente || salvando;
   $('#recarregar').disabled = salvando;
   if (config) {
-    $('#nome-resumo').textContent = config.evento?.nome || 'Seu evento';
-    $('#nome-conversa').textContent = config.evento?.nome || 'Atendimento do evento';
-    $('#data-resumo').textContent = [config.evento?.data, config.evento?.local].filter(Boolean).join(' · ') || 'Conteúdo disponível neste computador';
+    const dados = multi() ? (eventoAtual()?.evento || {}) : (config.evento || {});
+    const nome = multi() && !eventoAtual() ? (config.produtora?.nome || 'Produtora') : dados.nome;
+    $('#nome-resumo').textContent = nome || 'Seu evento';
+    $('#nome-conversa').textContent = (multi() ? config.produtora?.nome : dados.nome) || 'Atendimento do evento';
+    $('#data-resumo').textContent = (multi() && !eventoAtual() ? 'Mensagens gerais da produtora' : [dados.data, dados.local].filter(Boolean).join(' · ')) || 'Conteúdo disponível neste computador';
   }
 }
 
@@ -100,7 +125,7 @@ function tituloOpcao(opcao) {
   if (opcao.titulo) return opcao.titulo;
   const numero = (opcao.palavras_exatas || []).find(texto => /^\d+$/.test(texto));
   if (numero) {
-    const linha = (config.mensagens?.menu || '').split('\n').find(texto => new RegExp('^\\s*' + numero + '\\s*[-–—.:)]\\s*').test(texto));
+    const linha = (mensagensDoEvento().menu || '').split('\n').find(texto => new RegExp('^\\s*' + numero + '\\s*[-–—.:)]\\s*').test(texto));
     if (linha) return linha.replace(new RegExp('^\\s*' + numero + '\\s*[-–—.:)]\\s*'), '').trim();
   }
   return titulosPadrao[opcao.id] || opcao.id || 'Nova opção';
@@ -109,7 +134,8 @@ function tituloOpcao(opcao) {
 function renderizarOpcoes() {
   const lista = $('#lista-opcoes');
   lista.replaceChildren();
-  config.opcoes.forEach((opcao, indice) => {
+  const opcoes = opcoesDoEvento();
+  opcoes.forEach((opcao, indice) => {
     const cartao = document.createElement('section'); cartao.className = 'opcao';
     const cabecalho = document.createElement('div'); cabecalho.className = 'opcao-cabecalho';
     const titulo = document.createElement('div'); titulo.className = 'opcao-titulo';
@@ -117,7 +143,7 @@ function renderizarOpcoes() {
     const nome = document.createElement('strong'); nome.textContent = tituloOpcao(opcao);
     titulo.append(numero, nome);
     const remover = document.createElement('button'); remover.type = 'button'; remover.className = 'botao-remover'; remover.textContent = 'Remover'; remover.setAttribute('aria-label', 'Remover opção ' + tituloOpcao(opcao));
-    remover.addEventListener('click', () => { config.opcoes.splice(indice, 1); renderizarOpcoes(); mudou(); $('#adicionar-opcao').focus(); });
+    remover.addEventListener('click', () => { opcoes.splice(indice, 1); renderizarOpcoes(); mudou(); $('#adicionar-opcao').focus(); });
     cabecalho.append(titulo, remover);
     const grade = document.createElement('div'); grade.className = 'grade-campos';
     grade.append(campo({ titulo: 'Título no menu', valor: tituloOpcao(opcao), obrigatorio: true, mudar: valor => { opcao.titulo = valor; nome.textContent = valor || 'Nova opção'; } }));
@@ -135,27 +161,105 @@ function renderizarOpcoes() {
   });
 }
 
+function mostrar(id, visivel) { $('#' + id).hidden = !visivel; }
+
 function renderizar() {
+  const v2 = multi(); const ev = eventoAtual(); const prod = emProdutora();
+  mostrar('seletor-evento', v2); mostrar('aviso-v1', !v2);
+  for (const [id, visivel] of [['identidade', Boolean(ev)], ['produtora-cartao', prod], ['dados', !prod], ['mensagens', !prod], ['opcoes', !prod]]) mostrar(id, visivel);
+  $('#remover-evento').hidden = !ev; $('#nota-ia-evento').hidden = !ev;
+  $('#area-simular-como').hidden = !v2;
+  if (v2) { atualizarSeletores(); renderizarIdentidade(); renderizarProdutora(); }
   const evento = $('#campos-evento'); evento.replaceChildren();
-  const chaves = [...new Set([...Object.keys(nomesEvento), ...Object.keys(config.evento || {}).filter(chave => !chave.startsWith('_') && typeof config.evento[chave] === 'string')])];
-  for (const chave of chaves) evento.append(campo({ titulo: nomesEvento[chave] || chave, valor: config.evento?.[chave] || '', classe: camposLargos.includes(chave) ? 'campo-largo' : '', mudar: valor => { config.evento ||= {}; config.evento[chave] = valor; } }));
-  $('#campo-menu').replaceChildren(campo({ titulo: 'Mensagem de boas-vindas e menu', valor: config.mensagens.menu, linhas: true, classe: 'menu', obrigatorio: true, mudar: valor => { config.mensagens.menu = valor; } }));
-  const outras = $('#campos-mensagens'); outras.replaceChildren();
-  for (const [chave, titulo] of [['nao_entendi', 'Resposta geral para dúvida não reconhecida'], ['reativado', 'Mensagem ao reativar o atendimento']]) outras.append(campo({ titulo, valor: config.mensagens[chave] || '', linhas: true, mudar: valor => { config.mensagens[chave] = valor; } }));
+  const campos = $('#campo-menu'); campos.replaceChildren(); $('#campos-mensagens').replaceChildren(); $('#lista-opcoes').replaceChildren();
+  if (!prod) {
+    const dados = dadosDoEvento();
+    const chaves = [...new Set([...Object.keys(nomesEvento), ...Object.keys(dados).filter(chave => !chave.startsWith('_') && typeof dados[chave] === 'string')])];
+    for (const chave of chaves) evento.append(campo({ titulo: nomesEvento[chave] || chave, valor: dados[chave] || '', classe: camposLargos.includes(chave) ? 'campo-largo' : '', mudar: valor => { dados[chave] = valor; if (chave === 'nome') atualizarRotulos(); } }));
+    const mensagens = mensagensDoEvento();
+    campos.append(campo({ titulo: 'Mensagem de boas-vindas e menu', valor: mensagens.menu || '', linhas: true, classe: 'menu', obrigatorio: true, mudar: valor => { mensagens.menu = valor; } }));
+    const outras = [['nao_entendi', 'Resposta geral para dúvida não reconhecida']];
+    if (!v2) outras.push(['reativado', 'Mensagem ao reativar o atendimento']);
+    for (const [chave, titulo] of outras) $('#campos-mensagens').append(campo({ titulo, valor: mensagens[chave] || '', linhas: true, mudar: valor => { mensagens[chave] = valor; } }));
+    renderizarOpcoes();
+  }
   const fallback = $('#campos-fallback'); fallback.replaceChildren();
-  const lista = config.fallback?.mensagens || fallbackPadrao;
-  for (let i = 0; i < 3; i++) fallback.append(campo({ titulo: ['Primeira tentativa · orientar', 'Segunda tentativa · pedir mais detalhes', 'Terceira tentativa · encaminhar para a equipe'][i], valor: lista[i] || '', linhas: true, obrigatorio: true, mudar: valor => { config.fallback ||= {}; config.fallback.mensagens ||= [...fallbackPadrao]; config.fallback.mensagens[i] = valor; } }));
-  fallback.append(campo({ titulo: 'Ao receber áudio ou imagem sem legenda', valor: config.fallback?.mensagem_midia || 'Para eu ajudar, escreva sua dúvida em uma mensagem de texto. Ainda não consigo ouvir áudios ou interpretar imagens.', linhas: true, obrigatorio: true, mudar: valor => { config.fallback ||= {}; config.fallback.mensagem_midia = valor; } }));
-  renderizarOpcoes();
+  const vigente = fallbackVigente();
+  const lista = vigente.mensagens || fallbackPadrao;
+  for (let i = 0; i < 3; i++) fallback.append(campo({ titulo: ['Primeira tentativa · orientar', 'Segunda tentativa · pedir mais detalhes', 'Terceira tentativa · encaminhar para a equipe'][i], valor: lista[i] || '', linhas: true, obrigatorio: true, mudar: valor => { const alvo = fallbackEditado(); alvo.mensagens ||= [...(fallbackVigente().mensagens || fallbackPadrao)]; alvo.mensagens[i] = valor; } }));
+  fallback.append(campo({ titulo: 'Ao receber áudio ou imagem sem legenda', valor: vigente.mensagem_midia || 'Para eu ajudar, escreva sua dúvida em uma mensagem de texto. Ainda não consigo ouvir áudios ou interpretar imagens.', linhas: true, obrigatorio: true, mudar: valor => { fallbackEditado().mensagem_midia = valor; } }));
   renderizarIA();
   for (const fieldset of document.querySelectorAll('#editor>fieldset')) fieldset.disabled = false;
+  $('#evento-atual').disabled = false;
   for (const id of ['texto-simulador', 'enviar-simulacao', 'simular-midia', 'reiniciar-conversa']) $('#' + id).disabled = false;
   atualizarSituacao();
 }
 
+function rotuloEvento(ev) { return (ev.evento?.nome || ev.id || 'Sem nome') + ' · ' + (nomesStatus[ev.status] || ev.status || '?'); }
+
+// Reconstrói a lista de eventos do editor e do simulador (ao criar, remover ou carregar).
+function atualizarSeletores() {
+  const editor = $('#evento-atual'); editor.replaceChildren();
+  const simular = $('#simular-como'); const anterior = simular.value; simular.replaceChildren();
+  const novo = document.createElement('option'); novo.value = ''; novo.textContent = 'Contato novo (o robô escolhe o evento)'; simular.append(novo);
+  config.eventos.forEach((ev, i) => {
+    const o = document.createElement('option'); o.value = String(i); editor.append(o);
+    const p = document.createElement('option'); p.value = ev.id; simular.append(p);
+  });
+  const geral = document.createElement('option'); geral.value = 'produtora'; geral.textContent = 'Produtora (geral)'; editor.append(geral);
+  editor.value = typeof selecionado === 'number' ? String(selecionado) : 'produtora';
+  atualizarRotulos();
+  simular.value = [...simular.options].some(o => o.value === anterior) ? anterior : '';
+  $('#rotulo-rascunhos').hidden = simular.value !== '';
+}
+
+// Atualiza só os textos (nome, status, id) sem perder a seleção.
+function atualizarRotulos() {
+  if (!multi()) return;
+  const editor = $('#evento-atual'); const simular = $('#simular-como');
+  config.eventos.forEach((ev, i) => {
+    editor.options[i].textContent = rotuloEvento(ev);
+    simular.options[i + 1].value = ev.id; simular.options[i + 1].textContent = rotuloEvento(ev);
+  });
+  const ev = eventoAtual(); const selo = $('#selo-status');
+  selo.hidden = !ev;
+  if (ev) { selo.textContent = nomesStatus[ev.status] || ev.status; selo.dataset.status = ev.status; }
+}
+
+function renderizarIdentidade() {
+  const ev = eventoAtual(); const area = $('#campos-identidade'); area.replaceChildren();
+  if (!ev) return;
+  const id = campo({ titulo: 'Identificador do evento', valor: ev.id, obrigatorio: true, padrao: '[a-z0-9][a-z0-9\\-]{0,63}', maximo: 64, ajuda: idsNovos.has(ev.id) ? 'Letras minúsculas, números e hífens. Depois de salvar, não muda mais.' : 'Não pode ser alterado depois de criado.', mudar: valor => { ev.id = valor; atualizarRotulos(); } });
+  if (!idsNovos.has(ev.id)) id.querySelector('input').readOnly = true;
+  const status = document.createElement('label'); status.className = 'campo';
+  const t = document.createElement('span'); t.textContent = 'Situação';
+  const sel = document.createElement('select'); sel.id = 'campo-' + ++sequenciaCampo;
+  for (const [valor, nome] of [['rascunho', 'Rascunho (só no simulador)'], ['ativo', 'Ativo (o robô atende)'], ['encerrado', 'Encerrado (arquivado)']]) { const o = document.createElement('option'); o.value = valor; o.textContent = nome; sel.append(o); }
+  sel.value = ev.status;
+  sel.addEventListener('change', () => { ev.status = sel.value; atualizarRotulos(); mudou(); });
+  status.append(t, sel);
+  const gatilhos = campo({ titulo: 'Gatilhos', valor: (ev.gatilhos || []).join('\n'), linhas: true, classe: 'campo-largo', ajuda: 'Uma palavra ou frase por linha. Quando o contato escreve um deles, o robô passa a falar deste evento. Ex.: nome da atração.', mudar: valor => { ev.gatilhos = listaTexto(valor); } });
+  area.append(id, status, gatilhos);
+}
+
+function renderizarProdutora() {
+  const area = $('#campos-produtora'); area.replaceChildren();
+  const m = $('#campos-mensagens-gerais'); m.replaceChildren();
+  if (!emProdutora()) return;
+  config.produtora ||= {};
+  const chaves = [...new Set([...Object.keys(nomesProdutora), ...Object.keys(config.produtora).filter(chave => !chave.startsWith('_') && typeof config.produtora[chave] === 'string')])];
+  for (const chave of chaves) area.append(campo({ titulo: nomesProdutora[chave] || chave, valor: config.produtora[chave] || '', classe: ['nome', 'instagram', 'linktree'].includes(chave) ? 'campo-largo' : '', mudar: valor => { config.produtora[chave] = valor; } }));
+  config.mensagens ||= {};
+  for (const [chave, titulo, padrao, ajuda] of [
+    ['escolher_evento', 'Menu de eventos (quando há mais de um ativo)', textoEscolherEvento, 'Use {{eventos}} onde a lista numerada deve aparecer.'],
+    ['sem_eventos', 'Quando não há evento ativo', textoSemEventos, 'Resposta enquanto nenhum evento estiver com atendimento aberto.'],
+    ['reativado', 'Mensagem ao reativar o atendimento', '', ''],
+    ['agradecimento', 'Resposta a um agradecimento', '', '']])
+    m.append(campo({ titulo, valor: config.mensagens[chave] ?? padrao, linhas: true, ajuda, mudar: valor => { config.mensagens[chave] = valor; } }));
+}
+
 function campoIA({ titulo, tipo = 'texto', chave, ajuda, opcoes, minimo, maximo, passo, linhas, largo }) {
-  config.ia ||= {};
-  const ia = config.ia;
+  const ia = iaEditada();
   if (tipo === 'texto') return campo({ titulo, valor: ia[chave] || '', linhas, classe: largo ? 'campo-largo' : '', ajuda, mudar: valor => { if (valor.trim()) ia[chave] = valor; else delete ia[chave]; } });
   const label = document.createElement('label');
   label.className = 'campo' + (tipo === 'marcar' ? ' campo-marcar campo-largo' : '');
@@ -181,6 +285,12 @@ function campoIA({ titulo, tipo = 'texto', chave, ajuda, opcoes, minimo, maximo,
 
 function renderizarIA() {
   const area = $('#campos-ia'); area.replaceChildren();
+  if (eventoAtual()) {
+    const c = campoIA({ titulo: 'Informações extras sobre este evento', chave: 'conhecimento', linhas: true, largo: true, ajuda: 'Tudo o que a IA pode usar sobre este evento além dos dados e das respostas. Liste também o que ainda não foi divulgado, para ela não inventar.' });
+    c.querySelector('textarea').classList.add('conhecimento');
+    area.append(c);
+    return;
+  }
   area.append(campoIA({ titulo: 'Usar a IA quando o atendimento não entender a mensagem', tipo: 'marcar', chave: 'ativa' }));
   const grade = document.createElement('div'); grade.className = 'grade-campos';
   grade.append(
@@ -191,7 +301,7 @@ function renderizarIA() {
     campoIA({ titulo: 'Usos da IA por dia (todos os contatos)', tipo: 'numero', chave: 'max_usos_por_dia', minimo: 0, maximo: 1000000, ajuda: 'Padrão 80. Protege a cota gratuita da API.' }),
     campoIA({ titulo: 'Tamanho máximo da resposta (caracteres)', tipo: 'numero', chave: 'tamanho_maximo_resposta', minimo: 120, maximo: 3000, ajuda: 'Padrão 600.' }),
   );
-  const conhecimento = campoIA({ titulo: 'Informações extras para a IA', chave: 'conhecimento', linhas: true, largo: true, ajuda: 'Tudo o que a IA pode usar além dos dados do evento e das respostas. Liste também o que ainda não foi divulgado, para ela não inventar.' });
+  const conhecimento = campoIA({ titulo: multi() ? 'Informações extras da produtora (valem para todos os eventos)' : 'Informações extras para a IA', chave: 'conhecimento', linhas: true, largo: true, ajuda: 'Tudo o que a IA pode usar além dos dados do evento e das respostas. Liste também o que ainda não foi divulgado, para ela não inventar.' });
   conhecimento.querySelector('textarea').classList.add('conhecimento');
   area.append(grade, conhecimento,
     campoIA({ titulo: 'Texto no fim das respostas da IA', chave: 'rodape', linhas: true, largo: true, ajuda: 'Opcional. Ex.: _Resposta automática. Digite *menu* para ver as opções._' }));
@@ -207,12 +317,22 @@ async function statusIA() {
   } catch { $('#status-ia').textContent = 'Não foi possível verificar a chave da IA.'; }
 }
 
+function estruturaValida(c) {
+  if (!c.mensagens || typeof c.mensagens !== 'object') return false;
+  if (Array.isArray(c.eventos)) return c.eventos.every(ev => ev && typeof ev === 'object' && !Array.isArray(ev));
+  return Array.isArray(c.opcoes) && c.opcoes.every(opcao => opcao && typeof opcao === 'object');
+}
+
 async function carregar() {
   $('#recarregar').disabled = true;
   try {
     const dados = await api('/api/config');
-    if (!dados.config || Array.isArray(dados.config) || !Array.isArray(dados.config.opcoes) || dados.config.opcoes.some(opcao => !opcao || typeof opcao !== 'object') || !dados.config.mensagens) throw new Error('A estrutura da configuração está inválida. Corrija o arquivo de configuração antes de usar o painel.');
+    if (!dados.config || Array.isArray(dados.config) || !estruturaValida(dados.config)) throw new Error('A estrutura da configuração está inválida. Corrija o arquivo de configuração antes de usar o painel.');
     config = structuredClone(dados.config); revisao = dados.revisao; inicial = JSON.stringify(config);
+    idsNovos.clear();
+    const primeiroAtivo = multi() ? config.eventos.findIndex(ev => ev.status === 'ativo') : -1;
+    selecionado = primeiroAtivo >= 0 ? primeiroAtivo : 'produtora';
+    $('#simular-como').value = '';
     renderizar(); avisos(dados.avisos); feedback(''); reiniciarConversa(); statusIA();
   } catch (erro) { feedback(erro.message, true, erro.detalhes); atualizarSituacao(); }
   finally { $('#recarregar').disabled = false; }
@@ -242,7 +362,9 @@ async function simular(midia = false) {
   for (const id of ['enviar-simulacao', 'simular-midia', 'reiniciar-conversa']) $('#' + id).disabled = true;
   $('#erro-simulador').hidden = true;
   try {
-    const resultado = await api('/api/simular', 'POST', { config: structuredClone(config), texto: midia ? '' : texto, estado: estadoConversa, midia, usosIA });
+    const corpo = { config: structuredClone(config), texto: midia ? '' : texto, estado: estadoConversa, midia, usosIA };
+    if (multi()) { const como = $('#simular-como').value; if (como) corpo.eventoId = como; else corpo.incluirRascunhos = $('#incluir-rascunhos').checked; }
+    const resultado = await api('/api/simular', 'POST', corpo);
     balao(midia ? 'Áudio ou imagem sem legenda' : texto, 'usuario');
     if (resultado.ia?.resultado && resultado.ia.resultado !== 'respondeu') balao('IA não usada: ' + (resultadosIA[resultado.ia.resultado] || resultado.ia.resultado) + '.', 'silencio');
     if (resultado.resposta) balao(resultado.resposta, resultado.intencao === 'ia' ? 'ia' : '');
@@ -271,23 +393,103 @@ $('#editor').addEventListener('submit', async evento => {
 });
 
 $('#gerar-menu').addEventListener('click', () => {
-  const linhas = config.opcoes.map(opcao => {
+  const linhas = opcoesDoEvento().map(opcao => {
     const numero = (opcao.palavras_exatas || []).find(texto => /^\d+$/.test(texto));
     const seletor = numero || (opcao.palavras_exatas || []).find(texto => texto.trim());
     return (seletor ? seletor + ' - ' : '') + tituloOpcao(opcao);
   });
-  config.mensagens.menu = 'Olá! Boas-vindas ao ' + (config.evento?.nome || 'nosso evento') + '!\n\nComo podemos ajudar?\n\n' + linhas.join('\n') + '\n\nDigite o número ou escreva o assunto da opção desejada.';
-  $('#campo-menu textarea').value = config.mensagens.menu;
+  const menu = mensagensDoEvento();
+  menu.menu = 'Olá! Boas-vindas ao ' + (dadosDoEvento().nome || 'nosso evento') + '!\n\nComo podemos ajudar?\n\n' + linhas.join('\n') + '\n\nDigite o número ou escreva o assunto da opção desejada.';
+  $('#campo-menu textarea').value = menu.menu;
   mudou(); feedback('Menu atualizado com as opções atuais. Salve para usar esta versão.');
 });
 
 $('#adicionar-opcao').addEventListener('click', () => {
-  const ids = new Set(config.opcoes.map(opcao => opcao.id));
-  let i = config.opcoes.length + 1; while (ids.has('opcao_' + i)) i++;
-  const numeros = new Set(config.opcoes.flatMap(opcao => opcao.palavras_exatas || []));
-  let numero = config.opcoes.length + 1; while (numeros.has(String(numero))) numero++;
-  config.opcoes.push({ id: 'opcao_' + i, titulo: 'Nova opção', palavras_exatas: [String(numero)], palavras_chave: [], perguntas: [], resposta: '' });
+  const opcoes = opcoesDoEvento();
+  const ids = new Set(opcoes.map(opcao => opcao.id));
+  let i = opcoes.length + 1; while (ids.has('opcao_' + i)) i++;
+  const numeros = new Set(opcoes.flatMap(opcao => opcao.palavras_exatas || []));
+  let numero = opcoes.length + 1; while (numeros.has(String(numero))) numero++;
+  opcoes.push({ id: 'opcao_' + i, titulo: 'Nova opção', palavras_exatas: [String(numero)], palavras_chave: [], perguntas: [], resposta: '' });
   renderizarOpcoes(); mudou(); $('#lista-opcoes .opcao:last-child input').focus();
+});
+
+function abrirDialogo(dialog, aoFechar) {
+  dialog.returnValue = 'cancelar';
+  dialog.addEventListener('close', () => aoFechar(dialog.returnValue), { once: true });
+  dialog.showModal();
+}
+
+function trocarSelecao(valor) {
+  selecionado = valor;
+  renderizar();
+}
+
+$('#evento-atual').addEventListener('change', () => { const v = $('#evento-atual').value; trocarSelecao(v === 'produtora' ? 'produtora' : Number(v)); });
+$('#simular-como').addEventListener('change', () => { $('#rotulo-rascunhos').hidden = $('#simular-como').value !== ''; reiniciarConversa(); });
+$('#incluir-rascunhos').addEventListener('change', reiniciarConversa);
+
+$('#nome-novo').addEventListener('input', () => {
+  const nome = $('#nome-novo').value.trim();
+  $('#id-novo').textContent = nome ? 'Identificador: ' + gerarId(nome, new Set(config.eventos.map(ev => ev.id))) : '';
+});
+$('#novo-evento').addEventListener('click', () => {
+  $('#nome-novo').value = ''; $('#id-novo').textContent = '';
+  abrirDialogo($('#dialogo-novo'), retorno => {
+    const nome = $('#nome-novo').value.trim();
+    if (retorno !== 'criar' || !nome) return;
+    const id = gerarId(nome, new Set(config.eventos.map(ev => ev.id)));
+    const base = eventoAtual();
+    const novo = base ? structuredClone(base) : { evento: {}, mensagens: { menu: 'Olá! Boas-vindas ao {{nome}}!\n\nEm breve teremos mais informações por aqui.' }, opcoes: [] };
+    novo.id = id; novo.status = 'rascunho'; novo.gatilhos = [];
+    novo.evento = { ...(novo.evento || {}), nome };
+    config.eventos.push(novo); idsNovos.add(id);
+    trocarSelecao(config.eventos.length - 1);
+    mudou(); feedback('Rascunho criado. Ajuste os dados, teste no simulador e mude a situação para Ativo quando estiver pronto.');
+  });
+  $('#nome-novo').focus();
+});
+$('#criar-evento').addEventListener('click', evento => { if (!$('#nome-novo').value.trim()) { evento.preventDefault(); $('#nome-novo').focus(); } });
+
+$('#remover-evento').addEventListener('click', () => {
+  const ev = eventoAtual(); if (!ev) return;
+  if (ev.status === 'ativo') { feedback('Um evento ativo não pode ser removido. Mude a situação para Encerrado ou Rascunho primeiro.', true); return; }
+  $('#texto-remover').textContent = 'O evento “' + (ev.evento?.nome || ev.id) + '” será removido do arquivo quando você salvar. Para só arquivar, prefira a situação Encerrado.';
+  abrirDialogo($('#dialogo-remover'), retorno => {
+    if (retorno !== 'remover') return;
+    idsNovos.delete(ev.id); config.eventos.splice(selecionado, 1);
+    trocarSelecao('produtora'); mudou(); reiniciarConversa();
+  });
+});
+
+// Mesma regra do migrarParaV2 (lib/eventos.js), de forma mínima para o navegador.
+function converterParaV2(v1, nomeProdutora) {
+  const { evento = {}, mensagens = {}, opcoes = [], ia = {}, fallback, ...raiz } = v1;
+  const { menu, nao_entendi: naoEntendi, ...mensagensGerais } = mensagens;
+  const { conhecimento, ...iaGlobal } = ia;
+  const produtora = { nome: nomeProdutora };
+  const dadosEvento = { ...evento };
+  // Os contatos da produtora saem do evento: uma cópia ali sobrescreveria a da produtora.
+  for (const chave of ['instagram', 'email', 'linktree']) {
+    if (evento[chave]) produtora[chave] = evento[chave];
+    delete dadosEvento[chave];
+  }
+  const novo = { id: gerarId(evento.nome || 'evento', new Set()), status: 'ativo', gatilhos: evento.nome ? [evento.nome.toLowerCase()] : [], evento: dadosEvento, mensagens: { menu, ...(naoEntendi ? { nao_entendi: naoEntendi } : {}) }, opcoes };
+  if (conhecimento) novo.ia = { conhecimento };
+  const v2 = { ...raiz, versao: 2, produtora, mensagens: { sem_eventos: textoSemEventos, escolher_evento: textoEscolherEvento, ...mensagensGerais }, ...(fallback ? { fallback } : {}), ia: iaGlobal, eventos: [novo] };
+  if (!Object.keys(iaGlobal).length) delete v2.ia;
+  return v2;
+}
+$('#converter-v2').addEventListener('click', () => {
+  $('#nome-produtora').value = config.produtora?.nome || '';
+  abrirDialogo($('#dialogo-converter'), retorno => {
+    const nome = $('#nome-produtora').value.trim();
+    if (retorno !== 'converter') return;
+    config = converterParaV2(config, nome || 'Produtora');
+    idsNovos.add(config.eventos[0].id);
+    selecionado = 0; renderizar(); reiniciarConversa(); mudou();
+    feedback('Configuração convertida. Revise os dados e clique em Salvar para gravar.');
+  });
 });
 
 $('#recarregar').addEventListener('click', async () => {

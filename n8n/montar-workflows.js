@@ -28,7 +28,7 @@ const DX = 2200;
 
 // Bibliotecas de lib/ embutidas nos nós de código que as utilizam (o n8n não lê arquivos).
 const BIBLIOTECAS = {
-  'resolver-conversa.js': [['Chatbot', 'conversa.js'], ['IA', 'ia.js']],
+  'resolver-conversa.js': [['Chatbot', 'conversa.js'], ['Eventos', 'eventos.js'], ['IA', 'ia.js']],
   'aplicar-resposta-ia.js': [['IA', 'ia.js']],
 };
 

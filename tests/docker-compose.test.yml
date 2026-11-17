@@ -16,7 +16,7 @@ x-n8n: &n8n
 services:
   testes-locais:
     image: docker.n8n.io/n8nio/n8n:2.47.3
-    entrypoint: ["node", "--test", "tests/conversa.test.js", "tests/ia.test.js", "tests/painel.test.js", "tests/workflow.test.js"]
+    entrypoint: ["node", "--test", "tests/conversa.test.js", "tests/ia.test.js", "tests/painel.test.js", "tests/workflow.test.js", "tests/eventos.test.js"]
     working_dir: /app
     volumes:
       - ../:/app:ro
@@ -152,6 +152,8 @@ services:
       PAINEL_URL: http://painel:8080
     volumes:
       - ./:/tests:ro
+      # Regravável: os testes de vários eventos trocam o arquivo e depois o restauram.
+      - ./config:/tests/config
       - logs:/logs:ro
     networks:
       - teste
