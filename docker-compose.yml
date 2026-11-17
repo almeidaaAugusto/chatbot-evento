@@ -1,0 +1,208 @@
+# Chatbot de evento: WhatsApp -> WAHA -> n8n -> WAHA -> WhatsApp
+#
+# Iniciar:  docker compose up -d
+# Parar:    docker compose down          (os dados ficam nos volumes)
+# Status:   docker compose ps
+#
+# Todas as credenciais vêm do arquivo .env (gere com scripts/gerar-env.ps1).
+# WAHA, n8n e painel publicam portas somente em 127.0.0.1 (este computador).
+
+name: chatbot-evento
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-n8n: &n8n
+  image: docker.n8n.io/n8nio/n8n:2.47.3
+  env_file:
+    - ./n8n/n8n.env
+  networks:
+    - chatbot
+  logging: *logging
+
+services:
+  # Estado do chatbot: deduplicação, limites de resposta e contatos em atendimento humano.
+  redis:
+    image: redis:8-alpine
+    restart: unless-stopped
+    command: ["sh", "-c", "exec redis-server --requirepass \"$$REDISCLI_AUTH\" --appendonly yes --save 60 1"]
+    environment:
+      # redis-cli lê a senha desta variável (usada no healthcheck e nos scripts).
+      REDISCLI_AUTH: ${REDIS_PASSWORD:?Defina REDIS_PASSWORD no .env (rode scripts/gerar-env.ps1)}
+    volumes:
+      - redis_data:/data
+    networks:
+      - chatbot
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+    logging: *logging
+
+  # Entrega o volume de logs ao usuário do n8n (uid 1000). Termina em menos de 1 segundo.
+  preparar-logs:
+    image: redis:8-alpine
+    restart: "no"
+    user: "0"
+    network_mode: none
+    entrypoint: ["sh", "-c", "chown 1000:1000 /files/logs && chmod 750 /files/logs"]
+    volumes:
+      - logs:/files/logs
+    logging: *logging
+
+  # Roda uma vez antes do n8n: importa credenciais e workflows na primeira subida.
+  n8n-init:
+    <<: *n8n
+    restart: "no"
+    depends_on:
+      preparar-logs:
+        condition: service_completed_successfully
+    entrypoint: ["/bin/sh", "/init/importar.sh"]
+    environment:
+      GENERIC_TIMEZONE: ${FUSO_HORARIO:-America/Sao_Paulo}
+      TZ: ${FUSO_HORARIO:-America/Sao_Paulo}
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?Defina N8N_ENCRYPTION_KEY no .env}
+      WAHA_API_KEY: ${WAHA_API_KEY:?Defina WAHA_API_KEY no .env}
+      WEBHOOK_TOKEN: ${WEBHOOK_TOKEN:?Defina WEBHOOK_TOKEN no .env}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      # Opcional: chave da API de IA (scripts/configurar-ia.ps1). Vazia = IA sem chave.
+      IA_API_KEY: ${IA_API_KEY:-}
+      IMPORTAR: ${IMPORTAR:-auto}
+      LOG_RETENCAO_DIAS: ${LOG_RETENCAO_DIAS:-30}
+      CONVERSAS_RETENCAO_DIAS: ${CONVERSAS_RETENCAO_DIAS:-7}
+      CHATBOT_CONFIG_LIB: /app/lib/configuracao.js
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./n8n/init:/init:ro
+      - ./n8n/workflows:/workflows:ro
+      - ./lib:/app/lib:ro
+      - ./config:/files/config:ro
+      - logs:/files/logs
+
+  n8n:
+    <<: *n8n
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      n8n-init:
+        condition: service_completed_successfully
+    environment:
+      GENERIC_TIMEZONE: ${FUSO_HORARIO:-America/Sao_Paulo}
+      TZ: ${FUSO_HORARIO:-America/Sao_Paulo}
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+      N8N_WEBHOOK_URL: http://localhost:${N8N_PORT:-5678}/
+    ports:
+      - "127.0.0.1:${N8N_PORT:-5678}:5678"
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./config:/files/config:ro
+      - logs:/files/logs
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:5678/healthz/readiness"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+
+  # Edição dos textos, simulação local e acompanhamento das conversas, sem acesso às
+  # credenciais do WhatsApp. Recebe só a chave da IA, para o simulador mostrar o que a IA
+  # responderia, e lê o volume de logs (conversas e erros), apagando conversas antigas.
+  painel:
+    image: docker.n8n.io/n8nio/n8n:2.47.3
+    restart: unless-stopped
+    depends_on:
+      preparar-logs:
+        condition: service_completed_successfully
+    entrypoint: ["node", "/app/painel/server.js"]
+    environment:
+      TZ: ${FUSO_HORARIO:-America/Sao_Paulo}
+      PAINEL_HOST: 0.0.0.0
+      PAINEL_PORT: 8080
+      PAINEL_PUBLIC_PORT: ${PAINEL_PORT:-8080}
+      CHATBOT_CONFIG: /files/config/chatbot.json
+      IA_API_KEY: ${IA_API_KEY:-}
+      CHATBOT_LOGS: /files/logs
+      CONVERSAS_RETENCAO_DIAS: ${CONVERSAS_RETENCAO_DIAS:-7}
+      # Só a rota pública /ping, para saber se o WhatsApp (WAHA) está no ar.
+      WAHA_URL: http://waha:3000
+    ports:
+      - "127.0.0.1:${PAINEL_PORT:-8080}:8080"
+    volumes:
+      - ./painel:/app/painel:ro
+      - ./lib:/app/lib:ro
+      - ./config:/files/config
+      - logs:/files/logs
+    networks:
+      - chatbot
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    logging: *logging
+
+  waha:
+    image: devlikeapro/waha:gows-2026.10.1
+    restart: unless-stopped
+    depends_on:
+      n8n:
+        condition: service_healthy
+    environment:
+      TZ: ${FUSO_HORARIO:-America/Sao_Paulo}
+      # Engine sem navegador (mais leve). Documentação: https://waha.devlike.pro/docs/how-to/engines/
+      WHATSAPP_DEFAULT_ENGINE: GOWS
+      WAHA_NAMESPACE: all
+      WAHA_WORKER_ID: chatbot-evento
+      # A API só guarda o hash SHA-512 da chave; a chave em texto fica no .env e no n8n.
+      WAHA_API_KEY: sha512:${WAHA_API_KEY_SHA512:?Defina WAHA_API_KEY_SHA512 no .env}
+      WAHA_DASHBOARD_ENABLED: "true"
+      WAHA_DASHBOARD_USERNAME: ${WAHA_DASHBOARD_USERNAME:?Defina WAHA_DASHBOARD_USERNAME no .env}
+      WAHA_DASHBOARD_PASSWORD: ${WAHA_DASHBOARD_PASSWORD:?Defina WAHA_DASHBOARD_PASSWORD no .env}
+      WHATSAPP_SWAGGER_ENABLED: "true"
+      WHATSAPP_SWAGGER_USERNAME: ${WAHA_DASHBOARD_USERNAME}
+      WHATSAPP_SWAGGER_PASSWORD: ${WAHA_DASHBOARD_PASSWORD}
+      # Webhook global: toda sessão entrega os eventos ao n8n pela rede interna.
+      WHATSAPP_HOOK_URL: http://n8n:5678/webhook/waha-evento
+      WHATSAPP_HOOK_EVENTS: message.any,session.status
+      WHATSAPP_HOOK_CUSTOM_HEADERS: X-Webhook-Token:${WEBHOOK_TOKEN}
+      WHATSAPP_HOOK_RETRIES_POLICY: exponential
+      WHATSAPP_HOOK_RETRIES_DELAY_SECONDS: "2"
+      WHATSAPP_HOOK_RETRIES_ATTEMPTS: "4"
+      # O chatbot só atende conversas individuais.
+      WAHA_SESSION_CONFIG_IGNORE_STATUS: "true"
+      WAHA_SESSION_CONFIG_IGNORE_GROUPS: "true"
+      WAHA_SESSION_CONFIG_IGNORE_CHANNELS: "true"
+      WAHA_SESSION_CONFIG_IGNORE_BROADCAST: "true"
+      # Não baixa fotos/áudios recebidos e não imprime o QR Code nos logs.
+      WAHA_EVENTS_DOWNLOAD_MEDIA: "false"
+      WAHA_PRINT_QR: "False"
+      WAHA_LOG_LEVEL: info
+    ports:
+      - "127.0.0.1:${WAHA_PORT:-3000}:3000"
+    volumes:
+      - waha_sessions:/app/.sessions
+    networks:
+      - chatbot
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:3000/ping"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 40s
+    logging: *logging
+
+networks:
+  chatbot:
+    name: chatbot-evento
+
+volumes:
+  redis_data:
+  n8n_data:
+  waha_sessions:
+  # Logs de diagnóstico. Veja com scripts/ver-logs.ps1 (a pasta logs/ do projeto recebe as exportações).
+  logs:

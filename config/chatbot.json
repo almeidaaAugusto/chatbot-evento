@@ -1,0 +1,630 @@
+{
+  "_ajuda": "Edite pelo painel http://localhost:8080 ou neste arquivo. As alterações valem a partir da próxima mensagem, sem reiniciar. Valide com scripts\\validar-config.ps1. Conteúdo carregado de https://linktr.ee/produtoracaixapreta, do Instagram @prod.caixapreta (posts de 09 a 14/11, incluindo o MAPA REQUEBRA) e da página do evento na Cheers, conferidos em 13/11/2026; textos ajustados para o dia do baile e, por pedido da produção em 14/11/2026, sem valores, lotes ou combos de ingresso (o valor é passado pelos promoters); Instagram (posts de 12 a 14/11, incluindo o reel \"É HOJE\" da Inside) conferido de novo em 14/11/2026 à tarde. Stories não puderam ser lidos sem login. Textos ajustados em 14/11/2026 às 22h45 para o baile em andamento.",
+  "evento": {
+    "_ajuda": "Cada campo daqui pode ser usado nas respostas entre chaves duplas, por exemplo {{local}} ou {{ingresso}}. Quando o endereço sair, o lote virar ou o line-up for anunciado, troque só o campo correspondente (local, ingresso, lineup): todas as respostas e a IA passam a usar o valor novo. As vendas pelo robô são feitas somente com os promoters (lista na opção Comprar ingresso); por isso link_compra e link_ingressos estão vazios.",
+    "nome": "ReQuebra com Caio Prince",
+    "data": "🔴 ROLANDO AGORA! Sábado, 14 de novembro de 2026",
+    "horario": "22h",
+    "termino": "5h da manhã",
+    "cidade": "Presidente Prudente - SP",
+    "local": "HB Garden - Av. Tancredo Neves, 1995 - Vila Brasil, Presidente Prudente - SP, 19040-520",
+    "ingresso": "o valor do ingresso é passado direto pelos nossos promoters no WhatsApp (sem taxa, pagamento por PIX)",
+    "lineup": "DJ Caio Prince (SP) + 8 atrações",
+    "link_ingressos": "",
+    "link_compra": "",
+    "instagram": "https://www.instagram.com/prod.caixapreta/",
+    "grupo": "https://chat.whatsapp.com/FvvHqwlTPN53EHpA2rMaMN",
+    "linktree": "https://linktr.ee/produtoracaixapreta",
+    "email": "sac.caixapreta@gmail.com"
+  },
+  "mensagens": {
+    "menu": "Salve! 🖤 Aqui é o atendimento automático da *Caixa Preta*.\n\n🔊 *{{nome}}*\n📅 {{data}}\n🕙 Das {{horario}} às {{termino}} · {{cidade}}\n\nComo posso te ajudar?\n\n1 - Comprar ingresso\n2 - Valores\n3 - Data, horário e local\n4 - Line-up e estilos\n5 - Documentos e idade mínima\n6 - O que é proibido levar\n7 - Meu ingresso, QR Code e cancelamento\n8 - Grupo oficial\n9 - Fotos dos bailes\n0 - Falar com a equipe\n\nDigite o número ou escreva sua dúvida.",
+    "nao_entendi": "Essa informação eu não tenho por aqui. Para falar com a nossa equipe, chame no Instagram:\n\n{{instagram}}\n\nPara ver o que eu consigo responder, digite *menu*.",
+    "reativado": "O atendimento automático foi reativado. Digite *menu* para ver as opções.",
+    "agradecimento": "Tamo junto! 🖤 Se precisar de mais alguma coisa, é só chamar."
+  },
+  "saudacoes": [
+    "oi",
+    "olá",
+    "menu",
+    "bom dia",
+    "boa tarde",
+    "boa noite",
+    "início",
+    "oie",
+    "oii",
+    "oiii",
+    "opa",
+    "salve",
+    "e aí",
+    "eai",
+    "eae",
+    "fala",
+    "hey",
+    "alô"
+  ],
+  "opcoes": [
+    {
+      "_ajuda": "palavras_exatas: a mensagem inteira precisa ser igual. palavras_chave: basta aparecer em qualquer parte da mensagem. perguntas: exemplos de como as pessoas perguntam. Maiúsculas, acentos e pontuação são ignorados. Evite usar o nome do evento, do artista ou da produtora como palavra-chave: eles aparecem em mensagens sobre qualquer assunto.",
+      "id": "comprar",
+      "titulo": "Comprar ingresso",
+      "palavras_exatas": [
+        "1",
+        "ingresso",
+        "ingressos",
+        "tem ingresso",
+        "ainda tem ingresso",
+        "tem ingresso ainda",
+        "quero ingresso",
+        "quero ir",
+        "eu quero ir"
+      ],
+      "palavras_chave": [
+        "comprar",
+        "compra",
+        "garantir",
+        "vendedor",
+        "vendedores",
+        "vendedora",
+        "sem taxa",
+        "pix",
+        "cartão",
+        "boleto",
+        "link",
+        "cheers",
+        "onde vende",
+        "quem vende",
+        "kakau",
+        "esther",
+        "comissário",
+        "comissários",
+        "comissaria",
+        "entidade",
+        "atlética",
+        "promoter",
+        "promoters",
+        "promoter da entidade",
+        "rick",
+        "nathalia",
+        "nathália",
+        "bruno",
+        "andrey",
+        "iago"
+      ],
+      "perguntas": [
+        "onde compro meu ingresso",
+        "como faço para comprar ingresso",
+        "quero comprar um ingresso",
+        "onde comprar ingressos",
+        "como compro sem taxa",
+        "quem está vendendo ingresso"
+      ],
+      "resposta": "🎟️ *Ingressos · {{nome}}*\n\n🔥 O baile já está rolando! Quer colar? As vendas são feitas *somente com os nossos promoters*, direto no WhatsApp, *sem taxa* (pagamento por PIX):\n• Rick: https://wa.me/5500000000001\n• Nathália: https://wa.me/5500000000004\n• Bruno: https://wa.me/5500000000006\n• Andrey: https://wa.me/5500000000009\n• Iago: https://wa.me/5500000000005\n• Kakau: https://wa.me/5500000000008\n• Esther: https://wa.me/5500000000003\n• Afrodeus: https://wa.me/5500000000007\n\nÉ de atlética, centro acadêmico ou coletivo? Dá pra garantir também com o promoter da sua entidade."
+    },
+    {
+      "id": "valores",
+      "titulo": "Valores",
+      "palavras_exatas": [
+        "2",
+        "quanto",
+        "quanto é",
+        "quanto ta",
+        "quanto custa",
+        "qual o valor",
+        "qual valor"
+      ],
+      "palavras_chave": [
+        "preço",
+        "preços",
+        "valor",
+        "valores",
+        "quanto custa",
+        "custa quanto",
+        "quanto é",
+        "quanto que é",
+        "quanto ta",
+        "quanto que ta",
+        "quanto está",
+        "quanto fica",
+        "quanto sai",
+        "qnt",
+        "qto",
+        "lote",
+        "lotes",
+        "último lote",
+        "virada",
+        "duplo",
+        "combo",
+        "combo amigo",
+        "4 ingressos",
+        "quatro ingressos",
+        "4 amigos",
+        "2 ingressos",
+        "dois ingressos"
+      ],
+      "perguntas": [
+        "quanto ta o ingresso",
+        "quanto é o ingresso",
+        "qual o preço do ingresso",
+        "qual o valor da entrada",
+        "em que lote está",
+        "tem combo para 4 amigos",
+        "quanto fica 4 ingressos",
+        "tem promoção para grupo"
+      ],
+      "resposta": "💰 *Valores · {{nome}}*\n\n🔥 *O baile já está rolando!* Quer colar ainda hoje? Chame um dos nossos promoters agora mesmo.\n\nO valor do ingresso é passado direto pelos nossos promoters no WhatsApp (*sem taxa*, pagamento por PIX). Digite *1* para ver os contatos."
+    },
+    {
+      "id": "local",
+      "titulo": "Data, horário e local",
+      "palavras_exatas": [
+        "3",
+        "onde",
+        "onde é",
+        "onde vai ser",
+        "onde será",
+        "onde é o baile",
+        "onde vai ser o baile",
+        "onde é a festa",
+        "onde vai ser a festa",
+        "onde é o evento",
+        "onde vai ser o evento",
+        "onde será o evento",
+        "onde vai acontecer",
+        "quando",
+        "quando é",
+        "quando vai ser",
+        "quando será",
+        "que dia é",
+        "que dia vai ser",
+        "que dia vai acontecer",
+        "qual o dia",
+        "qual dia"
+      ],
+      "palavras_chave": [
+        "local",
+        "endereço",
+        "onde fica",
+        "localização",
+        "mapa",
+        "cidade",
+        "horário",
+        "que horas",
+        "data",
+        "que dia",
+        "qual dia",
+        "quando é",
+        "quando vai ser",
+        "quando será",
+        "começa",
+        "termina",
+        "acaba",
+        "abre",
+        "timetable",
+        "programação",
+        "cronograma"
+      ],
+      "perguntas": [
+        "qual a data do evento",
+        "quando vai ser o evento",
+        "qual o horário do evento",
+        "que horas começa o baile",
+        "até que horas vai",
+        "já saiu o endereço",
+        "como chego no local"
+      ],
+      "resposta": "📍 *{{nome}}*\n\n📅 *Data:* {{data}} (véspera de feriado)\n🕙 *Horário:* o baile já começou (abriu às {{horario}}) e vai até as {{termino}}. Ainda dá tempo de colar!\n🌆 *Cidade:* {{cidade}}\n📌 *Local:* {{local}}\n\n🗺️ O *mapa do baile* e o *timetable oficial* (horário de cada atração) foram publicados no nosso Instagram: {{instagram}}\n\nNovidades também no grupo oficial: {{grupo}}"
+    },
+    {
+      "id": "lineup",
+      "titulo": "Line-up e estilos",
+      "palavras_exatas": [
+        "4",
+        "dj",
+        "quem é o dj",
+        "qual dj",
+        "qual o dj",
+        "quem toca",
+        "quem vai tocar",
+        "quem canta"
+      ],
+      "palavras_chave": [
+        "line",
+        "lineup",
+        "line up",
+        "atração",
+        "atrações",
+        "djs",
+        "quem toca",
+        "quem vai tocar",
+        "quem canta",
+        "quem vai cantar",
+        "artista",
+        "artistas",
+        "estilo",
+        "estilos",
+        "gênero",
+        "gêneros",
+        "música",
+        "músicas",
+        "toca o que",
+        "funk",
+        "reggaeton",
+        "dancehall",
+        "funkhall",
+        "mandelão",
+        "piseiro",
+        "techno",
+        "house",
+        "eletro"
+      ],
+      "perguntas": [
+        "quais são as atrações",
+        "quem vai tocar no baile",
+        "que tipo de música toca",
+        "qual o estilo do baile",
+        "quem mais vai tocar"
+      ],
+      "resposta": "🔊 *O line pesadão · {{nome}}*\n\n⭐ {{lineup}}\n\nPela segunda vez em um baile da Caixa Preta, o Caio Prince vem comandar a quebração.\n\n🎶 *Estilos:* funk e mandelão, dancehall, eletro, funkhall, reggaeton, house, piseiro e techno.\n\nLine completa: Afrodeus, Frita, Nob, Ari, Maysa Napoleão, Heeyalt, Zampieri, Rã\n\n🗓️ O timetable oficial com o horário de cada atração está no Instagram: {{instagram}}"
+    },
+    {
+      "id": "documentos",
+      "titulo": "Documentos e idade mínima",
+      "palavras_exatas": [
+        "5",
+        "idade",
+        "rg"
+      ],
+      "palavras_chave": [
+        "documento",
+        "documentos",
+        "rg",
+        "identidade",
+        "cnh",
+        "e-título",
+        "título de eleitor",
+        "gov.br",
+        "idade",
+        "menor",
+        "menores",
+        "criança",
+        "crianças",
+        "maior de idade",
+        "classificação",
+        "faixa etária",
+        "censura",
+        "pdf",
+        "xerox",
+        "carteira de motorista",
+        "anos"
+      ],
+      "perguntas": [
+        "precisa de documento",
+        "pode entrar de menor",
+        "qual a idade mínima",
+        "aceita documento digital",
+        "menor pode entrar com responsável",
+        "pode menor acompanhado"
+      ],
+      "resposta": "📋 *Documentação (sem choro)*\n\n⭐ Só entra com *documento original com foto* ou pelos aplicativos oficiais do governo (e-Título, CNH Digital, Gov.br).\n⭐ Não aceitamos foto da identidade nem PDF solto.\n⭐ Faixa etária: *+18*. Menor não entra."
+    },
+    {
+      "id": "proibidos",
+      "titulo": "O que é proibido levar",
+      "palavras_exatas": [
+        "6",
+        "regras",
+        "o que pode levar",
+        "o que posso levar"
+      ],
+      "palavras_chave": [
+        "proibido",
+        "proibida",
+        "proibidos",
+        "o que não pode",
+        "copo",
+        "copos",
+        "stanley",
+        "garrafa",
+        "garrafas",
+        "garrafinha",
+        "vidro",
+        "alumínio",
+        "lata",
+        "latinha",
+        "arma",
+        "armas",
+        "droga",
+        "drogas",
+        "pode levar",
+        "posso levar",
+        "regras"
+      ],
+      "perguntas": [
+        "o que não pode levar",
+        "o que é proibido",
+        "pode entrar com copo stanley",
+        "pode levar garrafa de água",
+        "o que eu posso levar"
+      ],
+      "resposta": "🚫 *É proibido entrar com:*\n\n⭐ Copos térmicos (tipo Stanley), alumínio, metal ou garrafas de vidro.\n⭐ Objetos cortantes, armas brancas e armas de fogo.\n⭐ Drogas ilícitas.\n\nE o principal: não toleramos *nenhum* tipo de opressão, racismo, machismo ou preconceito. Se arrastar, vai rodar da festa."
+    },
+    {
+      "id": "qrcode",
+      "titulo": "Meu ingresso, QR Code e cancelamento",
+      "palavras_exatas": [
+        "7",
+        "qr",
+        "cancelar",
+        "onde ta meu ingresso",
+        "onde está meu ingresso",
+        "meu ingresso"
+      ],
+      "palavras_chave": [
+        "qr",
+        "qr code",
+        "qrcode",
+        "meu ingresso",
+        "meus ingressos",
+        "cadê meu ingresso",
+        "já comprei",
+        "comprei",
+        "não recebi",
+        "não chegou",
+        "cancelar",
+        "cancelamento",
+        "cancela",
+        "cancelo",
+        "reembolso",
+        "estorno",
+        "estornar",
+        "devolução",
+        "devolver",
+        "desistir",
+        "dinheiro de volta"
+      ],
+      "perguntas": [
+        "onde encontro meu qr code",
+        "como acesso meu ingresso",
+        "como ver meus ingressos",
+        "comprei e não recebi o ingresso",
+        "como cancelo minha compra",
+        "quero meu dinheiro de volta",
+        "não achei meu ingresso"
+      ],
+      "resposta": "🎫 *Já comprou?*\n\n*Comprou com um promoter?* Fale com quem te vendeu para receber ou conferir o seu ingresso.\n\n*Comprou antes pela Cheers?* O ingresso e o QR Code ficam no site ou no app da Cheers, em *Meus ingressos*, com a mesma conta usada na compra: https://cheers.com.br\nCancelamento dessas compras: pode ser solicitado em até 7 dias corridos após a compra, desde que seja antes de 48 horas do início do evento.\n\nNão resolveu? Digite *0* para falar com a equipe."
+    },
+    {
+      "id": "grupo",
+      "titulo": "Grupo oficial",
+      "palavras_exatas": [
+        "8",
+        "grupo"
+      ],
+      "palavras_chave": [
+        "grupo",
+        "grupos",
+        "comunidade"
+      ],
+      "perguntas": [
+        "tem grupo do baile",
+        "como entro no grupo",
+        "manda o link do grupo"
+      ],
+      "resposta": "📲 *Grupo oficial | Caio Prince em Prudente*\n\nEntre no grupo oficial do baile no WhatsApp:\n{{grupo}}"
+    },
+    {
+      "id": "fotos",
+      "titulo": "Fotos dos bailes",
+      "usar_na_ia": false,
+      "palavras_exatas": [
+        "9",
+        "fotos",
+        "foto"
+      ],
+      "palavras_chave": [
+        "fotos",
+        "álbum",
+        "álbuns",
+        "fotógrafo",
+        "fotógrafos",
+        "flickr"
+      ],
+      "perguntas": [
+        "onde vejo as fotos",
+        "saíram as fotos",
+        "cadê as fotos do baile"
+      ],
+      "resposta": "📸 *Fotos dos nossos bailes*\n\n• ReQuebra Prudente (📸 @mariane_____): https://drive.google.com/drive/folders/12hul3GxW_CcLCWmqX6t17LqYqNreTKxJ\n• ReQuebra Londrina (NYL): https://drive.google.com/drive/folders/1p2bOq6gWylK-Lmajpm3E1L5nESfh4SqX?usp=sharing\n• ReQuebra Araçatuba 2 (📸 @lenteeartefotos.018): https://photos.app.goo.gl/KpRijF71tZaP8yyX9\n• ReQuebra Assis · Rep Bar (📸 @macelacezar @bboy_tavin @3scria): https://drive.google.com/drive/folders/1grYvGxSH_M603DHXgiGzU_2lTk7WO80g\n• FBDO Open Bar · Presidente Prudente (GASALUCINACAO): https://drive.google.com/drive/folders/1H07-Xunbim4Mny7ZwaErc84zCXStNvw3?usp=drive_link\n• FBDO Sorocaba · 13/09 (@prod.caixapreta @gumter.jpeg): https://drive.google.com/drive/folders/1RgxiEUKTYpDXwnH63WXksMd5HNlzj4kr\n• FBDO Araçatuba (Lee Moreira): https://drive.google.com/drive/folders/1Y3l9i5bebmD7b4CCqJeZnjUA2Wj4bFoa?usp=sharing\n• Todas as fotos dos nossos rolês + antigos: https://www.flickr.com/photos/195848452@N08/albums\n\nPostou? Dê os créditos. 🖤"
+    },
+    {
+      "id": "atendente",
+      "titulo": "Falar com a equipe",
+      "palavras_exatas": [
+        "0",
+        "contato",
+        "falar com alguém",
+        "quero falar com alguém",
+        "falar com uma pessoa",
+        "quero falar com uma pessoa"
+      ],
+      "palavras_chave": [
+        "atendente",
+        "atendimento",
+        "humano",
+        "suporte",
+        "ajuda",
+        "instagram",
+        "insta",
+        "equipe",
+        "produção",
+        "organização",
+        "organizador",
+        "organizadores",
+        "email",
+        "e-mail",
+        "sac",
+        "reclamação",
+        "reclamar",
+        "telefone"
+      ],
+      "perguntas": [
+        "quero falar com um atendente",
+        "preciso falar com a equipe",
+        "como falar com vocês",
+        "tem alguém aí"
+      ],
+      "resposta": "🙋 *Falar com a equipe*\n\nO atendimento com a nossa equipe é pelo Instagram @prod.caixapreta:\n{{instagram}}\n\nSe preferir, mande um e-mail para {{email}}.\nChama a gente por lá e respondemos assim que possível."
+    },
+    {
+      "id": "sobre",
+      "titulo": "Conheça a produtora",
+      "mostrar_no_menu": false,
+      "palavras_exatas": [
+        "o que é requebra",
+        "o que é o requebra",
+        "o que é a requebra",
+        "o que é caixa preta",
+        "o que é a caixa preta",
+        "quem é a caixa preta",
+        "quem são vocês"
+      ],
+      "palavras_chave": [
+        "produtora",
+        "quem organiza",
+        "quem produz",
+        "quem realiza",
+        "vozes do gueto",
+        "batalha"
+      ],
+      "perguntas": [
+        "quem organiza o baile",
+        "quem é a produtora",
+        "me fala da produtora"
+      ],
+      "resposta": "⬛ *Caixa Preta*\n\nOnde o interior encontra o centro do baile. Há 6 anos produzindo eventos, explorando ideias e criando no interior de São Paulo.\n\nA *ReQuebra* é o nosso território: o baile é preto, da periferia e feito pra quem sabe chegar e respeitar. Mais grave, menos papo.\n\nRealização desta edição: Caixa Preta, Inside e BPM.\n\n📲 Instagram: {{instagram}}\n🔗 Todos os nossos links: {{linktree}}\n🎤 Batalha Vozes do Gueto (1ª fase): https://www.youtube.com/watch?v=fhH5ZOm-AAs&t=2406s"
+    },
+    {
+      "id": "estrutura",
+      "titulo": "Estrutura, bares e palcos",
+      "mostrar_no_menu": false,
+      "palavras_exatas": [
+        "bar",
+        "bares",
+        "palco",
+        "palcos",
+        "estrutura"
+      ],
+      "palavras_chave": [
+        "bares",
+        "palco",
+        "palcos",
+        "estrutura",
+        "área coberta",
+        "área externa",
+        "8 segundos",
+        "oito segundos",
+        "performer",
+        "performers",
+        "bebida",
+        "bebidas",
+        "fila do bar",
+        "open bar"
+      ],
+      "perguntas": [
+        "como vai ser a estrutura",
+        "quantos palcos vai ter",
+        "vai ter bar",
+        "onde compro bebida",
+        "como é o mapa do baile"
+      ],
+      "resposta": "🏗️ *Muito mais que um baile · {{nome}}*\n\n🍹 *Bares:* ampla estrutura de bares, incluindo um *bar exclusivo da 8 Segundos*, sem filas e com atendimento de qualidade. (Open bar não foi anunciado.)\n🔊 *Área coberta:* *dois palcos* com DJs e performers.\n🛍️ *Área externa:* estandes da Coconut, ReQuebra + Papelito, Cami Tattoo, Taáfa, Black Bazar, Emicriou e Fênix.\n\n🗺️ O mapa completo do baile está no Instagram: {{instagram}}"
+    },
+    {
+      "id": "parceiros",
+      "titulo": "Estandes e descontos parceiros",
+      "mostrar_no_menu": false,
+      "palavras_exatas": [
+        "parceiros",
+        "estandes",
+        "descontos"
+      ],
+      "palavras_chave": [
+        "parceiro",
+        "parceiros",
+        "parceria",
+        "estande",
+        "estandes",
+        "stand",
+        "stands",
+        "taáfa",
+        "taafa",
+        "benites",
+        "barbearia",
+        "barbershop",
+        "tattoo",
+        "tatuagem",
+        "bazar",
+        "black bazar",
+        "coconut",
+        "papelito",
+        "patrocinador",
+        "patrocinadores",
+        "patrocínio"
+      ],
+      "perguntas": [
+        "quais estandes vai ter",
+        "tem desconto com o ingresso",
+        "onde ganho desconto mostrando o ingresso",
+        "quem são os patrocinadores",
+        "vai ter tatuagem no baile"
+      ],
+      "resposta": "🤝 *Parceiros · {{nome}}*\n\n🛍️ *Estandes no baile:* Coconut, ReQuebra + Papelito, Cami Tattoo, Taáfa, Black Bazar, Emicriou e Fênix.\n\n💸 *20% de desconto apresentando o seu ingresso:*\n• Espaço Taáfa (@taafaespaco)\n• Benites Barbershop: Rua Adelino Rodrigues Gatto, 351 - Presidente Prudente\n\nMais detalhes no Instagram: {{instagram}}"
+    }
+  ],
+  "atendimento_humano": {
+    "_ajuda": "O atendimento humano é feito pelo Instagram (opção 0 e mensagens.nao_entendi). Estas regras só valem se alguém da equipe quiser assumir uma conversa pelo próprio WhatsApp: o robô para de responder ao contato por horas_pausa horas ou até alguém reativar. Os comandos são digitados pelo atendente, no celular do evento, dentro da conversa com o contato. pausar_quando_atendente_responder: com true, qualquer mensagem que alguém da equipe mandar pelo celular do número conectado (fora #bot) também pausa o robô naquela conversa; false desliga. palavras_para_voltar: o próprio contato sai do atendimento e volta ao robô digitando uma delas (lista vazia [] desliga isso).",
+    "horas_pausa": 24,
+    "pausar_quando_atendente_responder": true,
+    "comando_reativar": "#bot",
+    "comando_pausar": "#humano",
+    "palavras_para_voltar": [
+      "menu"
+    ]
+  },
+  "protecoes": {
+    "_ajuda": "Limites contra respostas em excesso e laços de mensagens. agrupar_mensagens_segundos: quando o contato manda várias mensagens seguidas, o robô espera esse tempo e responde uma vez só, à última (0 desliga). atraso_resposta_segundos simula digitação antes de responder. responder_mensagens_recebidas_offline: com false, o robô não responde ao que foi enviado enquanto ele estava desligado (conversas em aberto); com true, responde ao que tiver menos de idade_maxima_mensagem_segundos.",
+    "agrupar_mensagens_segundos": 4,
+    "atraso_resposta_segundos": {
+      "min": 1,
+      "max": 2
+    },
+    "max_mensagens_por_hora": 40,
+    "max_respostas_iguais": 3,
+    "janela_respostas_iguais_minutos": 10,
+    "idade_maxima_mensagem_segundos": 120,
+    "responder_mensagens_recebidas_offline": false,
+    "responder_midia_com_menu": true
+  },
+  "fallback": {
+    "_ajuda": "Três respostas diferentes para dúvidas não reconhecidas (usadas quando a IA está desligada, sem cota ou não soube responder). Depois da terceira, o robô aguarda uma opção reconhecida. {{opcoes}} mostra as opções atuais; os demais marcadores vêm de evento.",
+    "mensagens": [
+      "Não consegui entender sua dúvida 😕 Por aqui eu consigo ajudar com:\n\n{{opcoes}}\n\nDigite o número ou escreva o assunto.",
+      "Pode escrever de outro jeito, em uma frase curta? Se preferir, digite *menu* para ver as opções.",
+      "Essa eu não sei responder por aqui. Chama a nossa equipe no Instagram:\n\n{{instagram}}\n\nQuando quiser, digite *menu* para voltar às opções."
+    ],
+    "mensagem_midia": "Por aqui eu só consigo ler mensagens de texto 🙏 Escreva sua dúvida ou digite *menu* para ver as opções."
+  },
+  "ia": {
+    "_ajuda": "Assistente de IA para o que o robô não entende. Ligue com scripts\\configurar-ia.ps1 (grava a chave, testa e muda \"ativa\" para true). provedor: \"groq\" (gratuito, com cota) ou \"xai\" (Grok, pago). max_usos_por_contato: quantas vezes cada contato pode usar a IA; o contador zera janela_horas horas depois do último uso. max_usos_por_dia: teto somando todos os contatos (protege a cota gratuita: cada consulta gasta cerca de 2.500 tokens e o plano gratuito da Groq permite 200 mil por dia neste modelo). conhecimento: informações extras que a IA pode usar, além dos dados do evento e das respostas das opções. rodape: texto colocado no fim de cada resposta da IA (deixe \"\" para não usar). A IA recebe só o texto da mensagem, nunca o telefone do contato.",
+    "ativa": true,
+    "provedor": "groq",
+    "modelo": "openai/gpt-oss-120b",
+    "max_usos_por_contato": 3,
+    "janela_horas": 12,
+    "max_usos_por_dia": 80,
+    "tamanho_maximo_resposta": 600,
+    "conhecimento": "Sobre o baile: a ReQuebra é um baile da produtora Caixa Preta (\"onde o interior encontra o centro do baile\"), de Presidente Prudente-SP, que há 6 anos produz eventos no interior de São Paulo. Realização desta edição: Caixa Preta, BPM (@bpmcerto) e Inside (@inside_zero14). A edição de 14/11/2026 é divulgada como a maior e mais intensa da história do baile. O dia seguinte (15/11) é feriado. Universitários são bem-vindos: atléticas, centros acadêmicos, comissões, atletas e coletivos podem comprar com o promoter da sua entidade.\nVendas: neste atendimento as vendas são feitas SOMENTE com os promoters no WhatsApp (Rick, Nathália, Bruno, Andrey, Iago, Kakau, Esther e Afrodeus, contatos na opção 1). O Afrodeus é ao mesmo tempo atração do line-up e promoter: quem quiser comprar com ele pode chamá-lo no WhatsApp, sem taxa e com pagamento por PIX. Não indique a Cheers nem link de compra para comprar ingresso. O BAILE ESTÁ ACONTECENDO AGORA (14/11/2026): começou às 22h e vai até as 5h da manhã de 15/11. Quem quiser ir ainda hoje deve falar com um promoter (opção 1). Valores: NÃO informe nenhum valor, lote, combo, promoção ou desconto de ingresso, nem diga em que lote está; diga que o valor é passado direto pelos promoters no WhatsApp (opção 1). A produtora avisou que as vendas antecipadas estão no fim (em 13/11 postou \"ÚLTIMO DIA DE VENDAS ANTECIPADAS\" e \"depois não adianta chorar na portaria\"); em 14/11 a Inside postou \"É HOJE\" e ainda chama para garantir o ingresso antecipado com o promoter da sua entidade. Não diga que as vendas acabaram nem que há venda na portaria: isso não foi informado; oriente a falar com um promoter. O HB Garden fica na zona leste de Presidente Prudente. A montagem da estrutura começou em 13/11. Não há confirmação de esgotado nem de venda na portaria. Quem já comprou pela Cheers encontra o ingresso em Meus ingressos no site ou app da Cheers (opção 7).\nProgramação: o timetable oficial (horário de cada atração) foi publicado como imagem no Instagram em 11/11; não invente horários, indique o Instagram {{instagram}}.\nEstrutura (mapa do baile publicado no Instagram em 12/11): ampla estrutura de bares, com um bar exclusivo da 8 Segundos, sem filas; na área coberta, dois palcos com DJs e performers; na área externa, os estandes. Estandes no baile: Coconut, ReQuebra + Papelito, Cami Tattoo, Taáfa, Black Bazar, Emicriou e Fênix. Parceiros com 20% de desconto apresentando o ingresso: Espaço Taáfa e Benites Barbershop (Rua Adelino Rodrigues Gatto, 351, Presidente Prudente).\nPatrocínio master: Papelito, 8 Segundos Energy, Fênix Atacado, Nova Conveniência e Coconut Ice Drink. Patrocínio: Idealizando Personalizados e AW Brindes. Ticketeira oficial: Cheers. Apoio: Viva Tickets e Tercel Salgados. Media partners: Roxou PP e Black Art Prod.\nReQuebra Tour 2026: o baile já passou por Araçatuba, Presidente Prudente, Bauru, Londrina e Assis. A única data futura confirmada é 14/11/2026 em Presidente Prudente; novas cidades e datas são anunciadas no Instagram.\nFotos dos bailes anteriores: a pessoa pode digitar 9 (ou a palavra fotos) para receber os links dos álbuns; todos também estão em {{linktree}}.\nAinda NÃO divulgado nas páginas oficiais (não invente: diga que ainda não foi divulgado e indique o Instagram {{instagram}}): venda de ingresso na portaria, lista ou desconto de aniversário, open bar (o baile tem bares, mas open bar não foi anunciado), preços e formas de pagamento do bar, estacionamento, guarda-volumes, camarote ou área VIP, acessibilidade e reentrada.",
+    "rodape": "_Resposta do assistente automático. Digite *menu* para ver as opções._"
+  }
+}

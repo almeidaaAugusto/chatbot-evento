@@ -1,0 +1,113 @@
+{
+  "id": "ChatbotEventoErr",
+  "name": "Chatbot Evento - Registro de erros",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "c0de0000-0000-4000-8000-000000000081",
+      "name": "Quando um workflow falhar",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Nó \"Montar linha de erro\" (workflow de erros).\n// Registra falhas do chatbot sem telefones, e-mails ou conteúdo de mensagens.\n\nconst dados = $input.first().json ?? {};\nconst execucao = dados.execution ?? {};\nconst erro = execucao.error ?? dados.trigger?.error ?? {};\n// A falha de envio é propagada com um identificador fixo depois de registrada nos logs.\nconst falhaEnvio = String(erro.message ?? '').includes('CHATBOT_FALHA_ENVIO_WAHA');\n\n// Remove sequências longas de dígitos (telefones) e identificadores com \"@\".\nconst limpar = (texto) =>\n  String(texto ?? '')\n    .replace(/\\d{6,}/g, '***')\n    .replace(/[\\w.+*-]+@[\\w.-]+/g, '***')\n    .replace(/\\s+/g, ' ')\n    .trim()\n    .slice(0, 300);\n\nconst registro = {\n  quando: $now.toISO(),\n  workflow: dados.workflow?.name,\n  no: falhaEnvio ? 'WAHA: enviar resposta' : execucao.lastNodeExecuted ?? erro.node?.name,\n  erro: falhaEnvio ? 'Não foi possível enviar a resposta pelo WhatsApp.' : limpar(erro.message) || 'erro sem mensagem',\n  descricao: falhaEnvio ? undefined : limpar(erro.description) || undefined,\n  http: erro.httpCode ?? undefined,\n  execucao: execucao.id,\n  modo: execucao.mode,\n};\n\nreturn [{ json: { linha: JSON.stringify(registro) + '\\n' } }];\n"
+      },
+      "id": "c0de0000-0000-4000-8000-000000000082",
+      "name": "Montar linha de erro",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "toText",
+        "sourceProperty": "linha",
+        "binaryPropertyName": "data",
+        "options": {
+          "fileName": "erros.log"
+        }
+      },
+      "id": "c0de0000-0000-4000-8000-000000000083",
+      "name": "Converter em arquivo",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        460,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "=/files/logs/erros-{{ $now.toFormat('yyyy-LL-dd') }}.log",
+        "dataPropertyName": "data",
+        "options": {
+          "append": true
+        }
+      },
+      "id": "c0de0000-0000-4000-8000-000000000084",
+      "name": "Gravar no arquivo de log",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        680,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Quando um workflow falhar": {
+      "main": [
+        [
+          {
+            "node": "Montar linha de erro",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Montar linha de erro": {
+      "main": [
+        [
+          {
+            "node": "Converter em arquivo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Converter em arquivo": {
+      "main": [
+        [
+          {
+            "node": "Gravar no arquivo de log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "all",
+    "saveManualExecutions": true,
+    "saveExecutionProgress": false,
+    "executionTimeout": 120
+  },
+  "pinData": {},
+  "tags": []
+}

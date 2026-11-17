@@ -1,0 +1,7 @@
+# Scripts executados dentro dos contêineres Linux precisam de fim de linha LF.
+*.sh text eol=lf
+*.js text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.env text eol=lf
+*.ps1 text eol=crlf

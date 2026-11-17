@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Central do evento · Atendimento</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <a class="pular" href="#editor">Pular para o conteúdo</a>
+  <header class="cabecalho">
+    <a class="marca" href="/" aria-label="Central do evento, início"><span class="marca-icone" aria-hidden="true">C</span><span>central<span class="marca-leve">doevento</span></span></a>
+    <nav class="abas" aria-label="Páginas do painel"><a href="/" aria-current="page">Respostas</a><a href="/conversas">Conversas</a></nav>
+    <span class="status-local"><span aria-hidden="true"></span>Painel local</span>
+  </header>
+  <main>
+    <div class="abertura">
+      <div><p class="sobretitulo">ATENDIMENTO NO WHATSAPP</p><h1>Uma boa conversa<br>começa aqui.</h1><p class="introducao">Prepare as respostas do seu evento e experimente<br class="desktop"> a conversa antes de colocar tudo em prática.</p></div>
+      <div class="resumo-evento"><span class="icone-evento" aria-hidden="true">✳</span><div><span>SEU EVENTO</span><strong id="nome-resumo">Carregando…</strong><small id="data-resumo">Conteúdo disponível neste computador</small></div></div>
+    </div>
+    <div id="feedback" class="feedback" role="status" aria-live="polite" hidden></div>
+    <div id="avisos" class="avisos" hidden></div>
+    <div class="area-trabalho">
+      <div class="coluna-editor">
+        <nav class="navegacao" aria-label="Seções do editor"><a href="#dados">Evento</a><a href="#mensagens">Menu</a><a href="#opcoes">Respostas</a><a href="#fallback">Quando não entender</a><a href="#ia">IA</a></nav>
+        <form id="editor" novalidate>
+          <fieldset id="dados" class="cartao" disabled>
+            <legend><span class="numero-secao">01</span> Dados do evento</legend>
+            <p class="descricao">Uma única atualização para todas as respostas. Use os campos entre chaves, como <code>{{local}}</code>, nos seus textos.</p>
+            <div id="campos-evento" class="grade-campos"></div>
+          </fieldset>
+          <fieldset id="mensagens" class="cartao" disabled>
+            <legend><span class="numero-secao">02</span> A primeira mensagem</legend>
+            <p class="descricao">Dê as boas-vindas e mostre o que o atendimento pode responder.</p>
+            <div id="campo-menu"></div>
+            <button id="gerar-menu" class="botao botao-secundario" type="button"><span aria-hidden="true">↻</span> Gerar menu a partir das opções</button>
+            <details class="mais-mensagens"><summary>Outras mensagens do atendimento</summary><div id="campos-mensagens"></div></details>
+          </fieldset>
+          <fieldset id="opcoes" class="cartao" disabled>
+            <legend><span class="numero-secao">03</span> Perguntas e respostas</legend>
+            <p class="descricao">Ensine o atendimento a reconhecer cada assunto. Quanto mais naturais os exemplos, melhor.</p>
+            <div id="lista-opcoes"></div>
+            <button id="adicionar-opcao" class="botao botao-secundario botao-largo" type="button"><span aria-hidden="true">＋</span> Adicionar uma opção</button>
+          </fieldset>
+          <fieldset id="fallback" class="cartao" disabled>
+            <legend><span class="numero-secao">04</span> Quando não entender</legend>
+            <p class="descricao">Três tentativas, três orientações diferentes. Depois da terceira, o atendimento espera uma opção reconhecida.</p>
+            <div id="campos-fallback"></div>
+          </fieldset>
+          <fieldset id="ia" class="cartao" disabled>
+            <legend><span class="numero-secao">05</span> Assistente de IA</legend>
+            <p class="descricao">Quando o atendimento não reconhece a mensagem, a IA tenta responder usando só os dados do evento, as respostas acima e as informações extras abaixo. Se ela não souber, valem as orientações da seção 04. Cada contato pode usar a IA poucas vezes, para não estourar a cota gratuita.</p>
+            <p id="status-ia" class="status-ia">Verificando a chave da IA…</p>
+            <div id="campos-ia"></div>
+          </fieldset>
+        </form>
+      </div>
+      <aside class="simulador" aria-labelledby="titulo-simulador">
+        <div class="simulador-titulo"><div><span class="sobretitulo">PRÉVIA DA CONVERSA</span><h2 id="titulo-simulador">Teste do seu jeito</h2></div><span class="selo">SIMULAÇÃO</span></div>
+        <p class="simulador-descricao">Experimente suas alterações aqui antes de salvar.</p>
+        <div class="conversa">
+          <div class="conversa-cabecalho"><span class="avatar" aria-hidden="true">✳</span><div><strong id="nome-conversa">Atendimento do evento</strong><small>Prévia local · nenhuma mensagem é enviada</small></div></div>
+          <div id="historico" class="historico" role="log" aria-live="polite" aria-label="Conversa de teste"><div class="inicio-conversa"><span aria-hidden="true">↗</span><p>Que tal começar com um “oi”?</p><small>Digite como se fosse um participante.</small></div></div>
+          <form id="form-simular" class="form-simular"><label class="somente-leitor" for="texto-simulador">Mensagem de teste</label><input id="texto-simulador" name="texto" maxlength="8000" placeholder="Escreva uma mensagem…" autocomplete="off" disabled><button id="enviar-simulacao" class="botao-enviar" type="submit" aria-label="Enviar mensagem de teste" disabled>↑</button></form>
+        </div>
+        <div class="acoes-simulador"><button id="simular-midia" class="botao-texto" type="button" disabled>Testar áudio ou imagem</button><button id="reiniciar-conversa" class="botao-texto" type="button" disabled>Reiniciar conversa</button></div>
+        <p id="erro-simulador" class="erro-simulador" role="alert" hidden></p>
+        <div class="dica"><span aria-hidden="true">✦</span><p><strong>Uma dica para seus exemplos</strong>Inclua perguntas como “onde vai ser?” ou “qual o endereço?”. O atendimento reconhece frases e pequenas variações de escrita.</p></div>
+      </aside>
+    </div>
+  </main>
+  <footer class="barra-salvar"><div class="barra-conteudo"><div class="situacao"><span id="indicador-salvo" class="indicador" aria-hidden="true"></span><div><strong id="situacao-titulo">Carregando configuração…</strong><small id="situacao-detalhe">Suas alterações só entram em uso depois de salvar.</small></div></div><div class="acoes-salvar"><button id="recarregar" class="botao botao-discreto" type="button">Recarregar</button><button id="salvar" class="botao botao-primario" type="submit" form="editor" disabled>Salvar alterações <span aria-hidden="true">↗</span></button></div></div></footer>
+  <dialog id="confirmar-descarte"><form method="dialog"><h2>Descartar suas alterações?</h2><p>Os ajustes que ainda não foram salvos serão perdidos.</p><div class="acoes-dialogo"><button class="botao botao-secundario" value="cancelar">Continuar editando</button><button class="botao botao-primario" value="descartar">Descartar e recarregar</button></div></form></dialog>
+</body>
+</html>

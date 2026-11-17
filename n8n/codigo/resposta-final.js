@@ -1,0 +1,20 @@
+// Nó "Resposta final".
+// Ponto único por onde passam os três caminhos: sem IA, IA barrada pelo limite e IA
+// consultada. Os nós seguintes (limites, envio, contexto e log) leem a resposta daqui.
+
+const executou = (no) => {
+  try {
+    return $(no).isExecuted === true;
+  } catch (e) {
+    return false;
+  }
+};
+
+let final;
+if (executou('Aplicar resposta da IA')) final = $('Aplicar resposta da IA').first().json;
+else if (executou('Verificar limites da IA')) final = $('Verificar limites da IA').first().json;
+else final = $('Resolver conversa').first().json;
+
+// O pedido enviado à IA contém a mensagem do contato: não segue adiante.
+const { corpo, url, ...ia } = final.ia ?? {};
+return [{ json: { ...final, ia } }];

@@ -1,0 +1,164 @@
+# Ambiente ISOLADO de testes: n8n + Redis de verdade, com um WAHA simulado no lugar do real.
+# Usa o mesmo workflow e o mesmo script de importação do ambiente real, mas com volumes,
+# rede e credenciais próprios (valores fixos de teste, sem portas publicadas).
+#
+# Execute pela raiz do projeto:  powershell -ExecutionPolicy Bypass -File scripts\testar.ps1
+
+name: chatbot-evento-teste
+
+x-n8n: &n8n
+  image: docker.n8n.io/n8nio/n8n:2.47.3
+  env_file:
+    - ../n8n/n8n.env
+  networks:
+    - teste
+
+services:
+  testes-locais:
+    image: docker.n8n.io/n8nio/n8n:2.47.3
+    entrypoint: ["node", "--test", "tests/conversa.test.js", "tests/ia.test.js", "tests/painel.test.js", "tests/workflow.test.js"]
+    working_dir: /app
+    volumes:
+      - ../:/app:ro
+    network_mode: none
+
+  redis:
+    image: redis:8-alpine
+    command: ["sh", "-c", "exec redis-server --requirepass \"$$REDISCLI_AUTH\" --save '' --appendonly no"]
+    environment:
+      REDISCLI_AUTH: senha-de-teste
+    networks:
+      - teste
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  # Responde no mesmo endereço que o WAHA real (http://waha:3000) e também simula a API
+  # de IA em http://waha:3000/ia/v1/chat/completions (ver "ia" em tests/config/chatbot.json).
+  waha:
+    image: docker.n8n.io/n8nio/n8n:2.47.3
+    entrypoint: ["node", "/tests/mock-waha.js"]
+    environment:
+      MOCK_API_KEY: chave-de-teste
+      MOCK_IA_KEY: chave-ia-de-teste
+    volumes:
+      - ./:/tests:ro
+    networks:
+      - teste
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000/ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  preparar-logs:
+    image: redis:8-alpine
+    restart: "no"
+    user: "0"
+    network_mode: none
+    entrypoint: ["sh", "-c", "chown 1000:1000 /files/logs && chmod 750 /files/logs"]
+    volumes:
+      - logs:/files/logs
+
+  n8n-init:
+    <<: *n8n
+    restart: "no"
+    depends_on:
+      preparar-logs:
+        condition: service_completed_successfully
+    entrypoint: ["/bin/sh", "/init/importar.sh"]
+    environment:
+      GENERIC_TIMEZONE: America/Sao_Paulo
+      TZ: America/Sao_Paulo
+      N8N_ENCRYPTION_KEY: chave-de-criptografia-de-teste
+      WAHA_API_KEY: chave-de-teste
+      WEBHOOK_TOKEN: token-de-teste
+      REDIS_PASSWORD: senha-de-teste
+      IA_API_KEY: chave-ia-de-teste
+      CONVERSAS_RETENCAO_DIAS: 7
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ../n8n/init:/init:ro
+      - ../n8n/workflows:/workflows:ro
+      - logs:/files/logs
+
+  n8n:
+    <<: *n8n
+    depends_on:
+      redis:
+        condition: service_healthy
+      waha:
+        condition: service_healthy
+      n8n-init:
+        condition: service_completed_successfully
+    environment:
+      GENERIC_TIMEZONE: America/Sao_Paulo
+      TZ: America/Sao_Paulo
+      N8N_ENCRYPTION_KEY: chave-de-criptografia-de-teste
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./config:/files/config:ro
+      - logs:/files/logs
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:5678/healthz/readiness"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+      start_period: 20s
+
+  # Painel lendo o mesmo volume de logs em que o n8n grava (página "Conversas").
+  painel:
+    image: docker.n8n.io/n8nio/n8n:2.47.3
+    entrypoint: ["node", "/app/painel/server.js"]
+    depends_on:
+      preparar-logs:
+        condition: service_completed_successfully
+    environment:
+      TZ: America/Sao_Paulo
+      PAINEL_HOST: 0.0.0.0
+      PAINEL_PORT: 8080
+      CHATBOT_CONFIG: /files/config/chatbot.json
+      CHATBOT_LOGS: /files/logs
+      CONVERSAS_RETENCAO_DIAS: 7
+      WAHA_URL: http://waha:3000
+    volumes:
+      - ../painel:/app/painel:ro
+      - ../lib:/app/lib:ro
+      - ./config:/files/config:ro
+      - logs:/files/logs
+    networks:
+      - teste
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  testes:
+    image: docker.n8n.io/n8nio/n8n:2.47.3
+    entrypoint: ["node", "/tests/executar-testes.js"]
+    depends_on:
+      n8n:
+        condition: service_healthy
+      painel:
+        condition: service_healthy
+    environment:
+      TZ: America/Sao_Paulo
+      N8N_URL: http://n8n:5678
+      WAHA_URL: http://waha:3000
+      WEBHOOK_TOKEN: token-de-teste
+      PAINEL_URL: http://painel:8080
+    volumes:
+      - ./:/tests:ro
+      - logs:/logs:ro
+    networks:
+      - teste
+
+networks:
+  teste: {}
+
+volumes:
+  n8n_data: {}
+  logs: {}

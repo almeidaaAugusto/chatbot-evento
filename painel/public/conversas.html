@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Conversas · Central do evento</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/conversas.js" defer></script>
+</head>
+<body class="pagina-conversas">
+  <a class="pular" href="#conversas">Pular para o conteúdo</a>
+  <header class="cabecalho">
+    <a class="marca" href="/" aria-label="Central do evento, início"><span class="marca-icone" aria-hidden="true">C</span><span>central<span class="marca-leve">doevento</span></span></a>
+    <nav class="abas" aria-label="Páginas do painel"><a href="/">Respostas</a><a href="/conversas" aria-current="page">Conversas</a></nav>
+    <span class="status-local"><span aria-hidden="true"></span>Painel local</span>
+  </header>
+  <main>
+    <div class="abertura abertura-conversas">
+      <div><p class="sobretitulo">ACOMPANHAMENTO DO ATENDIMENTO</p><h1>Conversas</h1><p class="introducao">O que o robô recebeu, o que respondeu e, quando ficou em silêncio, o motivo.<br class="desktop"> Atualiza sozinho a cada 5 segundos.</p></div>
+      <p id="atualizado" class="atualizado" role="status" aria-live="polite">Carregando…</p>
+    </div>
+    <section class="indicadores" aria-label="Resumo de hoje">
+      <div id="card-whatsapp" class="indicador-card"><span>WHATSAPP</span><strong id="whatsapp-status">…</strong><small id="whatsapp-detalhe"></small></div>
+      <div class="indicador-card"><span>MENSAGENS HOJE</span><strong id="hoje-recebidas">–</strong><small id="hoje-detalhe"></small></div>
+      <div id="card-ia" class="indicador-card"><span>IA HOJE</span><strong id="hoje-ia">–</strong><small id="ia-detalhe"></small></div>
+      <a id="card-erros" class="indicador-card" href="#erros"><span>ERROS</span><strong id="total-erros">–</strong><small id="erros-detalhe"></small></a>
+    </section>
+    <div id="aviso" class="feedback erro" role="alert" hidden></div>
+    <section id="conversas" class="painel-conversas" aria-label="Conversas">
+      <div class="lista-contatos">
+        <div class="filtros">
+          <label class="somente-leitor" for="busca">Buscar</label>
+          <input id="busca" type="search" placeholder="Buscar nome, número ou texto" autocomplete="off">
+          <label class="somente-leitor" for="periodo">Período</label>
+          <select id="periodo"><option value="1">Hoje</option><option value="3">3 dias</option><option value="7">7 dias</option></select>
+        </div>
+        <div class="chips" role="group" aria-label="Filtrar conversas">
+          <button type="button" data-filtro="todas" aria-pressed="true">Todas</button>
+          <button type="button" data-filtro="sem_resposta" aria-pressed="false">Sem resposta</button>
+          <button type="button" data-filtro="ia" aria-pressed="false">Com IA</button>
+          <button type="button" data-filtro="equipe" aria-pressed="false">Com a equipe</button>
+        </div>
+        <ul id="contatos" class="contatos" aria-label="Contatos"></ul>
+        <p id="sem-contatos" class="vazio" hidden></p>
+      </div>
+      <div class="conversa conversa-detalhe">
+        <div class="conversa-cabecalho">
+          <button id="voltar-lista" class="botao-voltar" type="button" aria-label="Voltar para a lista de conversas">←</button>
+          <span id="contato-avatar" class="avatar" aria-hidden="true">✳</span>
+          <div class="contato-info"><strong id="contato-nome">Escolha uma conversa</strong><small id="contato-numero">As mensagens aparecem aqui</small></div>
+          <a id="abrir-whatsapp" class="botao botao-secundario botao-pequeno" target="_blank" rel="noopener noreferrer" hidden>Abrir no WhatsApp ↗</a>
+        </div>
+        <div id="mensagens" class="historico historico-real" role="log" aria-label="Mensagens da conversa">
+          <div class="inicio-conversa"><span aria-hidden="true">✉</span><p>Escolha uma conversa na lista.</p><small>Mensagens do contato à esquerda; respostas do robô e da equipe à direita.</small></div>
+        </div>
+        <p class="dica-equipe">Para assumir esta conversa, digite <code>#humano</code> nela pelo celular do robô. <code>#bot</code> devolve ao robô.</p>
+      </div>
+    </section>
+    <section id="erros" class="cartao secao-erros" aria-labelledby="titulo-erros">
+      <h2 id="titulo-erros">Erros</h2>
+      <p class="descricao">Falhas do robô e da IA nos últimos dias, da mais recente para a mais antiga.</p>
+      <ul id="lista-erros" class="lista-erros"></ul>
+      <p id="sem-erros" class="vazio" hidden>Nenhum erro registrado no período.</p>
+    </section>
+    <p class="privacidade">As conversas ficam gravadas só neste computador, por <span id="dias-retencao">7</span> dias, e depois são apagadas automaticamente.</p>
+  </main>
+</body>
+</html>

@@ -1,0 +1,178 @@
+{
+  "_ajuda": "COPIA CONGELADA usada so pelos testes automatizados (tests/). Nao e a configuracao do chatbot real: edite config/chatbot.json.",
+  "evento": {
+    "_ajuda": "Cada campo daqui pode ser usado nas respostas entre chaves duplas, por exemplo {{local}} ou {{link_compra}}.",
+    "nome": "[NOME_DO_EVENTO]",
+    "data": "[DATA_DO_EVENTO]",
+    "local": "[LOCAL_DO_EVENTO]",
+    "horario": "[HORARIO_DO_EVENTO]",
+    "link_ingressos": "[LINK_DOS_INGRESSOS]",
+    "link_compra": "[LINK_DE_COMPRA]",
+    "instagram": "[INSTAGRAM_DO_EVENTO]"
+  },
+  "mensagens": {
+    "menu": "Olá! Seja bem-vindo ao atendimento oficial do evento!\n\nComo podemos ajudar?\n\n1 - Onde encontro meu QR Code?\n2 - Valores dos ingressos\n3 - Local e horário do evento\n4 - Comprar ingressos\n5 - Falar com um atendente\n\nDigite o número da opção desejada.",
+    "nao_entendi": "Não tenho essa informação por aqui. Para falar com a nossa equipe, chame no Instagram:\n\n{{instagram}}\n\nPara ver o que consigo responder por aqui, digite menu.",
+    "reativado": "O atendimento automático foi reativado. Digite menu para ver as opções."
+  },
+  "saudacoes": [
+    "oi",
+    "olá",
+    "menu",
+    "bom dia",
+    "boa tarde",
+    "boa noite",
+    "início"
+  ],
+  "fallback": {
+    "mensagens": [
+      "Ainda não identifiquei sua dúvida sobre {{nome}}. Posso ajudar com:\n\n{{opcoes}}\n\nDigite o número da opção desejada.",
+      "Pode escrever sua dúvida de outro jeito? Se preferir, digite menu para escolher um assunto.",
+      "Para esclarecer essa dúvida com a nossa equipe, chame no Instagram:\n\n{{instagram}}"
+    ],
+    "mensagem_midia": "Recebi sua mídia. Escreva sua dúvida em uma mensagem de texto para eu ajudar."
+  },
+  "ia": {
+    "_ajuda": "Nos testes a IA é o servidor simulado (tests/mock-waha.js): ele só responde quando a mensagem começa com 'ia responde'; nos demais casos devolve o sinal de 'sem resposta', erro ou demora, conforme o texto.",
+    "ativa": true,
+    "url": "http://waha:3000/ia/v1/chat/completions",
+    "modelo": "modelo-de-teste",
+    "max_usos_por_contato": 4,
+    "janela_horas": 1,
+    "max_usos_por_dia": 100000,
+    "tempo_limite_segundos": 3,
+    "conhecimento": "Estacionamento: ainda não divulgado."
+  },
+  "opcoes": [
+    {
+      "_ajuda": "palavras_exatas: a mensagem inteira precisa ser igual. palavras_chave: basta aparecer em qualquer parte da mensagem. Maiúsculas, acentos e pontuação são ignorados.",
+      "id": "qrcode",
+      "titulo": "Onde encontro meu QR Code?",
+      "perguntas": [
+        "Onde está o meu ingresso?",
+        "Como encontro meu QR Code?"
+      ],
+      "palavras_exatas": [
+        "1",
+        "ingresso"
+      ],
+      "palavras_chave": [
+        "qr",
+        "qr code",
+        "qrcode",
+        "meu ingresso"
+      ],
+      "resposta": "Para encontrar seu QR Code, acesse a plataforma onde realizou sua compra, entre em 'Meus Ingressos' e selecione o ingresso do evento.\n\nCaso não consiga localizar, digite 5 para solicitar atendimento."
+    },
+    {
+      "id": "valores",
+      "titulo": "Valores dos ingressos",
+      "perguntas": [
+        "Quanto custa o ingresso?",
+        "Quanto tá o ingresso?"
+      ],
+      "palavras_exatas": [
+        "2"
+      ],
+      "palavras_chave": [
+        "preço",
+        "preços",
+        "valor",
+        "valores",
+        "quanto custa",
+        "lote",
+        "lotes"
+      ],
+      "resposta": "Confira os valores atualizados dos ingressos no link oficial:\n\n{{link_ingressos}}"
+    },
+    {
+      "id": "local",
+      "titulo": "Local e horário do evento",
+      "perguntas": [
+        "Onde fica o evento?",
+        "Qual a data do evento?"
+      ],
+      "palavras_exatas": [
+        "3"
+      ],
+      "palavras_chave": [
+        "local",
+        "endereço",
+        "onde fica",
+        "horário",
+        "que horas"
+      ],
+      "resposta": "Local: {{local}}\nData: {{data}}\nHorário: {{horario}}"
+    },
+    {
+      "id": "comprar",
+      "titulo": "Comprar ingressos",
+      "perguntas": [
+        "Onde compro meu ingresso?",
+        "Como posso comprar ingressos?"
+      ],
+      "palavras_exatas": [
+        "4"
+      ],
+      "palavras_chave": [
+        "comprar",
+        "compra",
+        "link"
+      ],
+      "resposta": "Você pode garantir seu ingresso pelo link oficial:\n\n{{link_compra}}"
+    },
+    {
+      "id": "atendente",
+      "titulo": "Falar com um atendente",
+      "perguntas": [
+        "Como falo com a equipe?",
+        "Qual o Instagram de vocês?"
+      ],
+      "palavras_exatas": [
+        "5"
+      ],
+      "palavras_chave": [
+        "atendente",
+        "humano",
+        "suporte",
+        "ajuda",
+        "instagram"
+      ],
+      "resposta": "O atendimento com a nossa equipe é feito pelo Instagram:\n\n{{instagram}}\n\nChame a gente por lá e responderemos assim que possível."
+    },
+    {
+      "id": "teste_transferir",
+      "titulo": "Transferir atendimento de teste",
+      "perguntas": [],
+      "palavras_exatas": [
+        "transferir teste"
+      ],
+      "transferir_para_humano": true,
+      "resposta": "Pedido de atendimento registrado (opção usada só nos testes)."
+    }
+  ],
+  "atendimento_humano": {
+    "_ajuda": "O atendimento humano é feito pelo Instagram (opção 5 e mensagens.nao_entendi). Estas regras só valem se alguém da equipe quiser assumir uma conversa pelo próprio WhatsApp: o robô para de responder ao contato por horas_pausa horas ou até alguém reativar. Os comandos são digitados pelo atendente, no celular do evento, dentro da conversa com o contato. pausar_quando_atendente_responder: com true, qualquer mensagem que alguém da equipe mandar pelo celular do número conectado (fora #bot) também pausa o robô naquela conversa; false desliga. palavras_para_voltar: o próprio contato sai do atendimento e volta ao robô digitando uma delas (lista vazia [] desliga isso).",
+    "horas_pausa": 24,
+    "pausar_quando_atendente_responder": true,
+    "comando_reativar": "#bot",
+    "comando_pausar": "#humano",
+    "palavras_para_voltar": [
+      "menu"
+    ]
+  },
+  "protecoes": {
+    "_ajuda": "Limites contra respostas em excesso e laços de mensagens. agrupar_mensagens_segundos: quando o contato manda várias mensagens seguidas, o robô espera esse tempo e responde uma vez só, à última (0 desliga). atraso_resposta_segundos simula digitação antes de responder. responder_mensagens_recebidas_offline: com false, o robô não responde ao que foi enviado enquanto ele estava desligado (conversas em aberto); com true, responde ao que tiver menos de idade_maxima_mensagem_segundos.",
+    "agrupar_mensagens_segundos": 1,
+    "atraso_resposta_segundos": {
+      "min": 0,
+      "max": 0
+    },
+    "max_mensagens_por_hora": 8,
+    "max_respostas_iguais": 3,
+    "janela_respostas_iguais_minutos": 10,
+    "idade_maxima_mensagem_segundos": 120,
+    "responder_mensagens_recebidas_offline": false,
+    "responder_midia_com_menu": true
+  }
+}

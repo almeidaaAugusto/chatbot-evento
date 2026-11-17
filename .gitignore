@@ -1,0 +1,21 @@
+# Segredos
+.env
+.env.*
+!.env.example
+
+# Logs e saídas de teste
+logs/*
+!logs/.gitkeep
+tests/.saida/
+n8n/backups/
+
+# QR Code temporário e afins
+*.png
+*.tmp
+config/*.bak
+
+# Sistema / editores
+Thumbs.db
+.DS_Store
+.vscode/
+.idea/
