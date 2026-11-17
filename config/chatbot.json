@@ -7,6 +7,9 @@
     "linktree": "https://linktr.ee/produtoracaixapreta",
     "email": "sac.caixapreta@gmail.com"
   },
+  "numeros": [
+    { "sessao": "default", "nome": "Caixa Preta" }
+  ],
   "mensagens": {
     "reativado": "O atendimento automático foi reativado. Digite *menu* para ver as opções.",
     "agradecimento": "Tamo junto! 🖤 Se precisar de mais alguma coisa, é só chamar.",

@@ -235,3 +235,120 @@ test('validação v2: sem evento ativo é aviso; lista vazia é permitida; menu 
   cfg.eventos = { id: 'x' };
   assert.ok(validarConfig(cfg).erros.length > 0);
 });
+
+// ---------- vários números (sessões do WAHA) ----------
+
+const comNumeros = (eventos, extra = {}) => ({
+  ...base(),
+  numeros: [{ sessao: 'x', nome: 'Número X' }, { sessao: 'z', nome: 'Número Z' }],
+  eventos,
+  ...extra,
+});
+const ids = (lista) => lista.map((e) => e.id);
+
+test('números: eventosDisponiveis filtra por sessão; sem "numeros" no evento aparece em todas', () => {
+  const cfg = comNumeros([
+    evento('y', 'ativo', 'Y', ['y'], { numeros: ['x'] }),
+    evento('n', 'ativo', 'N', ['n'], { numeros: ['z'] }),
+    evento('todos', 'ativo', 'Todos', ['todos']),
+    evento('vazio', 'ativo', 'Vazio', ['vazio'], { numeros: [] }),
+  ]);
+  assert.deepEqual(ids(E.eventosDisponiveis(cfg)), ['y', 'n', 'todos', 'vazio']);
+  assert.deepEqual(ids(E.eventosDisponiveis(cfg, { sessao: 'x' })), ['y', 'todos', 'vazio']);
+  assert.deepEqual(ids(E.eventosDisponiveis(cfg, { sessao: 'z' })), ['n', 'todos', 'vazio']);
+  assert.deepEqual(ids(E.eventosDisponiveis(cfg, { sessao: 'outra' })), ['todos', 'vazio']);
+});
+
+test('números: sessão X só vê o evento Y e Z só o N, sem menu de eventos', () => {
+  const cfg = comNumeros([
+    evento('y', 'ativo', 'Y', ['y'], { numeros: ['x'] }),
+    evento('n', 'ativo', 'N', ['n'], { numeros: ['z'] }),
+  ]);
+  const x = E.resolver(cfg, 'oi', {}, { sessao: 'x' });
+  assert.equal(x.eventoId, 'y');
+  assert.equal(x.intencao, 'menu');
+  assert.match(x.resposta, /Menu Y/);
+  const z = E.resolver(cfg, 'oi', {}, { sessao: 'z' });
+  assert.equal(z.eventoId, 'n');
+  assert.match(z.resposta, /Menu N/);
+  // gatilho de outro número não vaza
+  const vaza = E.resolver(cfg, 'quero o n', {}, { sessao: 'x' });
+  assert.equal(vaza.eventoId, 'y');
+  // número sem nenhum evento: sem_eventos
+  const sem = E.resolver(cfg, 'oi', {}, { sessao: 'outra' });
+  assert.equal(sem.intencao, 'sem_eventos');
+});
+
+test('números: evento lembrado de outro número não vaza; eventoId (simulador) ignora o filtro', () => {
+  const cfg = comNumeros([
+    evento('y', 'ativo', 'Y', ['y'], { numeros: ['x'] }),
+    evento('n', 'ativo', 'N', ['n'], { numeros: ['z'] }),
+  ]);
+  const lembrado = E.resolver(cfg, 'oi', { evento: 'y' }, { sessao: 'z' });
+  assert.equal(lembrado.eventoId, 'n');
+  const forcado = E.resolver(cfg, 'oi', {}, { sessao: 'z', eventoId: 'y' });
+  assert.equal(forcado.eventoId, 'y');
+});
+
+test('números: o menu de eventos de uma sessão lista só os eventos dela', () => {
+  const cfg = comNumeros([
+    evento('y', 'ativo', 'Y', ['y'], { numeros: ['x'] }),
+    evento('n', 'ativo', 'N', ['n'], { numeros: ['z'] }),
+    evento('todos', 'ativo', 'Todos', ['todos']),
+  ]);
+  const s = E.resolver(cfg, 'oi', {}, { sessao: 'x' });
+  assert.equal(s.intencao, 'escolher_evento');
+  assert.match(s.resposta, /1 - Y/);
+  assert.match(s.resposta, /2 - Todos/);
+  assert.doesNotMatch(s.resposta, /- N /);
+  const escolhido = E.resolver(cfg, '2', s.estado, { sessao: 'x' });
+  assert.equal(escolhido.eventoId, 'todos');
+});
+
+test('números: validação de numeros da raiz e dos eventos', () => {
+  const ok = comNumeros([evento('y', 'ativo', 'Y', ['y'], { numeros: ['x'] }), evento('n', 'ativo', 'N', ['n'], { numeros: ['z'] })]);
+  const r = validarConfig(ok);
+  assert.deepEqual(r.erros, []);
+  assert.equal(r.avisos.some((a) => a.includes('não tem evento ativo')), false);
+
+  const inexistente = comNumeros([evento('y', 'ativo', 'Y', ['y'], { numeros: ['w'] })]);
+  assert.ok(validarConfig(inexistente).erros.some((e) => e.includes('"w"') && e.includes('não está cadastrado')));
+  const rascunho = comNumeros([evento('y', 'rascunho', 'Y', ['y'], { numeros: ['w'] })]);
+  const vr = validarConfig(rascunho);
+  assert.equal(vr.erros.length, 0);
+  assert.ok(vr.avisos.some((a) => a.includes('"w"')));
+
+  const semRaiz = base();
+  semRaiz.eventos[0].numeros = ['x'];
+  assert.ok(validarConfig(semRaiz).erros.some((e) => e.includes('cadastre o número em Produtora')));
+
+  const repetida = comNumeros([], { numeros: [{ sessao: 'x', nome: 'A' }, { sessao: 'x', nome: 'B' }] });
+  assert.ok(validarConfig(repetida).erros.some((e) => e.includes('repetida')));
+  const invalida = comNumeros([], { numeros: [{ sessao: 'a b', nome: 'A' }, { sessao: 'ok', nome: '' }] });
+  const ri = validarConfig(invalida).erros;
+  assert.ok(ri.some((e) => e.includes('"sessao"')) && ri.some((e) => e.includes('"nome"')));
+  assert.ok(validarConfig(comNumeros([], { numeros: 'x' })).erros.some((e) => e.includes('numeros precisa ser uma lista')));
+});
+
+test('números: gatilho repetido só é erro se os eventos podem atender no mesmo número', () => {
+  const dois = (a, b) => validarConfig(comNumeros([
+    evento('a', 'ativo', 'A', ['igual'], a ? { numeros: a } : {}),
+    evento('b', 'ativo', 'B', ['igual'], b ? { numeros: b } : {}),
+  ])).erros.filter((e) => e.includes('gatilho'));
+  assert.equal(dois(['x'], ['z']).length, 0, 'números diferentes: sem conflito');
+  assert.equal(dois(['x'], ['x', 'z']).length, 1, 'número em comum: conflito');
+  assert.equal(dois(null, ['z']).length, 1, 'um sem números: conflito');
+  assert.equal(dois(null, null).length, 1, 'ambos sem números: conflito');
+});
+
+test('números: aviso para número cadastrado sem evento ativo', () => {
+  const cfg = comNumeros([
+    evento('y', 'ativo', 'Y', ['y'], { numeros: ['x'] }),
+    evento('n', 'rascunho', 'N', ['n'], { numeros: ['z'] }),
+  ]);
+  const avisos = validarConfig(cfg).avisos;
+  assert.ok(avisos.includes('O número "Número Z" não tem evento ativo: ele só vai responder a mensagem "sem_eventos".'));
+  assert.equal(avisos.some((a) => a.includes('"Número X"')), false);
+  // sem "numeros" na raiz, nenhum aviso desse tipo
+  assert.equal(validarConfig(base()).avisos.some((a) => a.includes('não tem evento ativo')), false);
+});

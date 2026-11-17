@@ -452,3 +452,65 @@ test('PUT v2 com evento ativo inválido devolve 422 e não muda o arquivo', asyn
   assert.equal(await fs.readFile(configPath, 'utf8'), original);
   await assert.rejects(fs.access(configPath + '.bak'), 'nenhum backup é criado quando a gravação é recusada');
 });
+
+// ---------- vários números ----------
+
+function exemploComNumeros() {
+  const cfg = exemploV2();
+  cfg.numeros = [{ sessao: 'default', nome: 'Caixa Preta' }, { sessao: 'festival', nome: 'Festival' }];
+  cfg.eventos[0].numeros = ['default'];
+  cfg.eventos[1].numeros = ['festival'];
+  cfg.eventos.pop(); // sem o rascunho
+  return cfg;
+}
+
+test('simulador com sessao: cada número atende só os seus eventos, sem menu de eventos', async t => {
+  const { url } = await ambiente(t);
+  const cfg = exemploComNumeros();
+  const x = await simular(url, { config: cfg, texto: 'oi', estado: {}, sessao: 'default' });
+  assert.equal(x.status, 200);
+  assert.match(x.dados.resposta, /Menu da Festa A/);
+  assert.equal(x.dados.estado.evento, 'festa-a');
+  const z = await simular(url, { config: cfg, texto: 'oi', estado: {}, sessao: 'festival' });
+  assert.match(z.dados.resposta, /Menu da Festa B/);
+  assert.equal(z.dados.estado.evento, 'festa-b');
+  // O gatilho de um evento do outro número não o escolhe.
+  const outro = await simular(url, { config: cfg, texto: 'samba', estado: {}, sessao: 'default' });
+  assert.equal(outro.dados.estado.evento, 'festa-a');
+  assert.doesNotMatch(outro.dados.resposta, /Festa B/);
+  // Sem sessão, vale o comportamento anterior (menu com os dois eventos).
+  const sem = await simular(url, { config: cfg, texto: 'oi', estado: {} });
+  assert.equal(sem.dados.intencao, 'escolher_evento');
+});
+
+test('simulador: sessao inválida devolve 400', async t => {
+  const { url } = await ambiente(t);
+  const cfg = exemploComNumeros();
+  for (const sessao of [123, 'com espaço', '../x', '', 'a'.repeat(55), null]) {
+    assert.equal((await simular(url, { config: cfg, texto: 'oi', estado: {}, sessao })).status, 400, JSON.stringify(sessao));
+  }
+});
+
+test('PUT v2 com números: evento ligado a número inexistente é recusado; válido salva', async t => {
+  const { url } = await ambiente(t);
+  const atual = (await requisicao(url, '/api/config')).dados;
+  const ruim = exemploComNumeros();
+  ruim.eventos[0].numeros = ['nao-existe'];
+  const recusado = await requisicao(url, '/api/config', { metodo: 'PUT', corpo: { config: ruim, revisao: atual.revisao } });
+  assert.equal(recusado.status, 422);
+  const salvo = await requisicao(url, '/api/config', { metodo: 'PUT', corpo: { config: exemploComNumeros(), revisao: atual.revisao } });
+  assert.equal(salvo.status, 200);
+  assert.deepEqual((await requisicao(url, '/api/config')).dados.config.numeros.map(n => n.sessao), ['default', 'festival']);
+});
+
+test('conversas: o registro mantém a sessao e o mesmo contato em dois números fica distinguível', async t => {
+  const { logs, url } = await ambienteComLogs(t);
+  const base = { de: 'contato', conversa: '123@lid', resultado: 'respondida', intencao: 'menu' };
+  await fs.writeFile(path.join(logs, 'conversas-2026-11-11.log'),
+    linhaJson({ ...base, quando: '2026-11-11T09:00:00-03:00', texto: 'oi', sessao: 'default' }) +
+    linhaJson({ ...base, quando: '2026-11-11T09:01:00-03:00', texto: 'oi', sessao: 'festival' }) +
+    linhaJson({ ...base, quando: '2026-11-11T09:02:00-03:00', texto: 'antigo' }));
+  const r = await requisicao(url, '/api/conversas?dia=2026-11-11');
+  assert.deepEqual(r.dados.registros.map(x => x.sessao), ['default', 'festival', undefined]);
+  assert.equal(new Set(r.dados.registros.map(x => (x.sessao || '') + '|' + x.conversa)).size, 3);
+});

@@ -127,6 +127,7 @@ const telefoneDe = (id) => {
   return /^(c\.us|s\.whatsapp\.net)$/i.test(dominio ?? '') && digitos.length >= 8 ? digitos : '';
 };
 info.registro = {
+  sessao: base.sessao,
   conversa: chatId,
   telefone: telefoneDe(chatId) || telefoneDe(doProprioNumero ? infoWhatsApp.RecipientAlt : infoWhatsApp.SenderAlt),
   // Nas mensagens do próprio número o PushName é o do atendente, não o do contato.
@@ -136,7 +137,7 @@ info.registro = {
 };
 const normalizado = normalizar(texto);
 
-const chavePausa = 'pausa:' + chatId;
+const chavePausa = 'pausa:' + base.sessao + ':' + chatId;
 const horasPausa = Math.max(numero(humano.horas_pausa, 24), 0.25);
 const ttlPausa = Math.round(horasPausa * 3600);
 const agoraIso = new Date().toISOString();
@@ -238,7 +239,7 @@ return [
       valorPausa: agoraIso + '|cliente',
       chaves: {
         dedupe: 'dedupe:' + chaveMensagem,
-        ultima: 'ultima:' + chatId,
+        ultima: 'ultima:' + base.sessao + ':' + chatId,
         porHora: 'taxa:' + chatId,
       },
       ttl: {

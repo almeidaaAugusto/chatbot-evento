@@ -103,6 +103,7 @@ if (dados && typeof dados === 'object' && !NAO_REGISTRAR.includes(motivo)) {
   conversa = JSON.stringify({
     quando,
     de: doAtendente ? 'atendente' : 'contato',
+    sessao: dados.sessao || undefined,
     conversa: dados.conversa,
     telefone: dados.telefone || undefined,
     nome: dados.nome || undefined,

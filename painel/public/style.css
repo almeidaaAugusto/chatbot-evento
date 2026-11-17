@@ -131,3 +131,12 @@ a.indicador-card:hover{border-color:#cfd8c8}
 .marcar-rascunhos{display:flex;gap:8px;align-items:center;font-size:11px;color:#6f7d68;margin-top:9px}
 .marcar-rascunhos input{width:16px;height:16px;accent-color:var(--verde)}
 dialog .campo input{width:100%;border:1px solid #dce2d8;border-radius:6px;padding:11px 12px;background:#fdfefb;font:inherit}
+
+.numeros-evento{font-size:11px;color:#6f7d68;margin-bottom:12px;max-width:100%}
+.linha-numero{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr) auto;gap:12px;align-items:end;margin-bottom:14px}
+.linha-numero .campo{margin:0}
+@media(max-width:760px){.linha-numero{grid-template-columns:1fr}}
+.vazio-numeros{font-size:13px;color:#6f7d68;margin:0 0 14px}
+.caixas-numeros{display:flex;flex-direction:column;gap:2px;grid-column:1/-1}
+.caixas-numeros .campo-marcar{margin-bottom:8px}
+.contato-numero{font-size:10px;color:#6f7d68;background:#eef1ea;border-radius:4px;padding:1px 6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex-shrink:1;min-width:0;margin-right:auto;margin-left:4px}

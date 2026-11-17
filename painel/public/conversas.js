@@ -118,6 +118,20 @@ function assunto(intencao) {
   return opcao?.titulo || intencao;
 }
 
+// Número (sessão do WhatsApp) -> nome cadastrado em config.numeros. Preenchido ao carregar a configuração.
+const nomesDosNumeros = new Map();
+
+function mapearNumeros(config) {
+  nomesDosNumeros.clear();
+  for (const numero of config?.numeros || []) if (numero?.sessao) nomesDosNumeros.set(numero.sessao, numero.nome || '');
+}
+
+// Nome cadastrado para o número; sem nome, o próprio número (sessão). Sem sessão, devolve ''.
+function nomeDoNumero(sessao) {
+  if (!sessao) return '';
+  return nomesDosNumeros.get(sessao) || sessao;
+}
+
 const explicarIA = (resultado) => resultadosIA[resultado] || (String(resultado).startsWith('erro_') ? 'a API de IA respondeu com erro ' + String(resultado).slice(5) : resultado);
 
 // ---------- dados ----------
@@ -146,12 +160,16 @@ function registrosDoPeriodo() {
   return diasDoPeriodo().flatMap((dia) => estado.dias.get(dia)?.registros || []);
 }
 
+// Chave única de uma conversa: o mesmo contato falando com números (sessões) diferentes gera conversas separadas.
+const chaveDe = (sessao, conversa) => (sessao || '') + '|' + conversa;
+
 function agruparContatos(registros) {
   const contatos = new Map();
   for (const r of registros) {
     if (!r.conversa) continue;
-    let c = contatos.get(r.conversa);
-    if (!c) { c = { conversa: r.conversa, registros: [], nome: '', telefone: '', semResposta: false, equipe: false, ia: false, ultimoRegistro: null }; contatos.set(r.conversa, c); }
+    const chave = chaveDe(r.sessao, r.conversa);
+    let c = contatos.get(chave);
+    if (!c) { c = { chave, sessao: r.sessao || '', conversa: r.conversa, registros: [], nome: '', telefone: '', semResposta: false, equipe: false, ia: false, ultimoRegistro: null }; contatos.set(chave, c); }
     c.registros.push(r);
     if (r.nome) c.nome = r.nome;
     if (r.telefone) c.telefone = r.telefone;
@@ -203,12 +221,14 @@ function desenharContatos(contatos) {
   for (const c of filtrados) {
     const { nome } = identificacao(c);
     const item = elemento('li');
-    const botao = elemento('button', 'contato' + (c.conversa === estado.selecionada ? ' ativo' : ''));
+    const botao = elemento('button', 'contato' + (c.chave === estado.selecionada ? ' ativo' : ''));
     botao.type = 'button';
-    botao.dataset.conversa = c.conversa;
-    if (c.conversa === estado.selecionada) botao.setAttribute('aria-current', 'true');
+    botao.dataset.chave = c.chave;
+    if (c.chave === estado.selecionada) botao.setAttribute('aria-current', 'true');
     const linha1 = elemento('span', 'contato-linha');
-    linha1.append(elemento('strong', 'contato-nome', nome), elemento('time', 'contato-hora', (diaDe(c.registros.at(-1)) === estado.hoje ? '' : nomeDoDia(diaDe(c.registros.at(-1))) + ' ') + hora(c.ultimo)));
+    linha1.append(elemento('strong', 'contato-nome', nome));
+    if (c.sessao) linha1.append(elemento('small', 'contato-numero', nomeDoNumero(c.sessao)));
+    linha1.append(elemento('time', 'contato-hora', (diaDe(c.registros.at(-1)) === estado.hoje ? '' : nomeDoDia(diaDe(c.registros.at(-1))) + ' ') + hora(c.ultimo)));
     const linha2 = elemento('span', 'contato-previa', previa(c.ultimoRegistro).replace(/\s+/g, ' ').slice(0, 120));
     const marcas = elemento('span', 'marcas');
     if (c.naoEntregue) marcas.append(elemento('span', 'marca-estado erro', 'não entregue'));
@@ -254,7 +274,7 @@ function balao(classe, texto, rotulo, quando) {
 
 function desenharMensagens(contatos) {
   const area = $('#mensagens');
-  const contato = contatos.find((c) => c.conversa === estado.selecionada);
+  const contato = contatos.find((c) => c.chave === estado.selecionada);
   const perto = area.scrollHeight - area.scrollTop - area.clientHeight < 80;
   if (!contato) {
     $('#contato-nome').textContent = 'Escolha uma conversa';
@@ -269,7 +289,8 @@ function desenharMensagens(contatos) {
   }
   const { nome, detalhe } = identificacao(contato);
   $('#contato-nome').textContent = nome;
-  $('#contato-numero').textContent = detalhe || 'Conversa no WhatsApp';
+  const pelo = contato.sessao ? 'pelo número ' + nomeDoNumero(contato.sessao) : '';
+  $('#contato-numero').textContent = [detalhe || 'Conversa no WhatsApp', pelo].filter(Boolean).join(' · ');
   $('#contato-avatar').textContent = (nome.match(/[A-Za-zÀ-ÿ0-9]/) || ['✳'])[0].toUpperCase();
   const link = $('#abrir-whatsapp');
   link.hidden = !contato.telefone;
@@ -307,8 +328,8 @@ function desenharMensagens(contatos) {
       itens.push(nota(explicacao, r.motivo === 'agrupada_com_mensagem_seguinte' ? 'discreta' : 'alerta'));
     }
   }
-  const mudouDeContato = area.dataset.conversa !== contato.conversa;
-  area.dataset.conversa = contato.conversa;
+  const mudouDeContato = area.dataset.chave !== contato.chave;
+  area.dataset.chave = contato.chave;
   area.replaceChildren(...itens);
   if (mudouDeContato || perto) area.scrollTop = area.scrollHeight;
 }
@@ -319,7 +340,7 @@ function desenharIndicadores() {
   const respondidas = recebidas.filter((r) => r.resultado === 'respondida').length;
   const semResposta = recebidas.filter((r) => !['respondida', 'falha_no_envio'].includes(r.resultado) && r.motivo !== 'agrupada_com_mensagem_seguinte').length;
   const naoEntregues = recebidas.filter((r) => r.resultado === 'falha_no_envio').length;
-  const pessoas = new Set(recebidas.map((r) => r.conversa)).size;
+  const pessoas = new Set(recebidas.map((r) => chaveDe(r.sessao, r.conversa))).size;
   $('#hoje-recebidas').textContent = String(recebidas.length);
   $('#hoje-detalhe').textContent = [plural(pessoas, 'pessoa', 'pessoas'), plural(respondidas, 'respondida', 'respondidas'), semResposta + ' sem resposta', naoEntregues ? plural(naoEntregues, 'não entregue', 'não entregues') : ''].filter(Boolean).join(' · ');
 
@@ -367,7 +388,7 @@ function explicarErro(e) {
 
 function errosParaMostrar() {
   const doRobo = estado.erros.map((e) => ({ ...e, origem: 'robo' }));
-  const daIA = [...estado.dias.values()].flatMap((d) => d.registros).filter((r) => r.ia && FALHAS_DA_IA.test(r.ia)).map((r) => ({ quando: r.quando, origem: 'ia', ia: r.ia, conversa: r.conversa, nome: r.nome, telefone: r.telefone }));
+  const daIA = [...estado.dias.values()].flatMap((d) => d.registros).filter((r) => r.ia && FALHAS_DA_IA.test(r.ia)).map((r) => ({ quando: r.quando, origem: 'ia', ia: r.ia, sessao: r.sessao, conversa: r.conversa, nome: r.nome, telefone: r.telefone }));
   return [...doRobo, ...daIA].sort((a, b) => String(b.quando).localeCompare(String(a.quando)));
 }
 
@@ -389,7 +410,7 @@ function desenharErros() {
     if (e.origem === 'ia' && e.conversa) {
       const abrir = elemento('button', 'botao-texto', 'Ver conversa');
       abrir.type = 'button';
-      abrir.dataset.conversa = e.conversa;
+      abrir.dataset.chave = chaveDe(e.sessao, e.conversa);
       item.append(abrir);
     }
     lista.append(item);
@@ -444,8 +465,8 @@ async function atualizar() {
   }
 }
 
-function selecionar(conversa) {
-  estado.selecionada = conversa;
+function selecionar(chave) {
+  estado.selecionada = chave;
   $('#conversas').classList.add('mostrando-conversa');
   desenhar(true);
   if (window.matchMedia('(max-width: 760px)').matches) $('#conversas').scrollIntoView({ block: 'start' });
@@ -453,18 +474,18 @@ function selecionar(conversa) {
 
 function iniciar() {
   $('#contatos').addEventListener('click', (evento) => {
-    const botao = evento.target.closest('button[data-conversa]');
-    if (botao) selecionar(botao.dataset.conversa);
+    const botao = evento.target.closest('button[data-chave]');
+    if (botao) selecionar(botao.dataset.chave);
   });
   $('#lista-erros').addEventListener('click', (evento) => {
-    const botao = evento.target.closest('button[data-conversa]');
+    const botao = evento.target.closest('button[data-chave]');
     if (!botao) return;
     if (estado.periodo < estado.retencao) { estado.periodo = estado.retencao; $('#periodo').value = String(estado.retencao); }
     estado.filtro = 'todas';
     estado.busca = '';
     $('#busca').value = '';
     for (const chip of document.querySelectorAll('.chips button')) chip.setAttribute('aria-pressed', String(chip.dataset.filtro === 'todas'));
-    atualizar().then(() => { selecionar(botao.dataset.conversa); $('#conversas').scrollIntoView({ behavior: 'smooth' }); });
+    atualizar().then(() => { selecionar(botao.dataset.chave); $('#conversas').scrollIntoView({ behavior: 'smooth' }); });
   });
   $('#voltar-lista').addEventListener('click', () => $('#conversas').classList.remove('mostrando-conversa'));
   $('#busca').addEventListener('input', (evento) => { estado.busca = evento.target.value; desenhar(true); });
@@ -484,7 +505,8 @@ function iniciar() {
   document.addEventListener('visibilitychange', () => { if (!document.hidden) atualizar(); });
   setInterval(() => { if (!document.hidden) atualizar(); }, INTERVALO_MS);
 
-  api('/api/config').then((dados) => { estado.config = dados.config; desenhar(true); }).catch(() => {});
+  // A configuração é lida uma vez; se falhar, a página segue sem os nomes dos números.
+  api('/api/config').then((dados) => { estado.config = dados.config; mapearNumeros(dados.config); desenhar(true); }).catch(() => {});
   atualizar();
 }
 

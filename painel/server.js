@@ -12,6 +12,7 @@ const { criarRegistros } = require('./registros');
 const LIMITE_CORPO = 1024 * 1024;
 // O simulador usa a mesma cota gratuita do atendimento real: no máximo isto por hora.
 const LIMITE_IA_SIMULADOR = 30;
+const SESSAO = /^[a-zA-Z0-9_-]{1,54}$/;
 const filas = new Map();
 const arquivos = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
@@ -99,7 +100,7 @@ function serializar(configPath, tarefa) {
 // Resolve como o workflow: motor de regras e, se ele não entender, a IA (quando houver
 // chave e a IA estiver ligada), respeitando o limite por contato informado pelo navegador.
 async function simularConversa(dados, { chaveIA, fetchIA, usosRecentes }) {
-  const bruta = Eventos.resolver(dados.config, dados.texto, dados.estado || {}, { midia: dados.midia, incluirRascunhos: dados.incluirRascunhos === true, eventoId: dados.eventoId || undefined });
+  const bruta = Eventos.resolver(dados.config, dados.texto, dados.estado || {}, { midia: dados.midia, incluirRascunhos: dados.incluirRascunhos === true, eventoId: dados.eventoId || undefined, sessao: dados.sessao || undefined });
   const { config: configUsada, ...saida } = bruta; // a configuração achatada fica no servidor
   const usos = Number.isInteger(dados.usosIA) && dados.usosIA >= 0 ? dados.usosIA : 0;
   if (!IA.deveConsultar(configUsada, saida, dados.texto)) return { ...saida, usosIA: usos };
@@ -183,7 +184,7 @@ function criarServidor({ configPath = path.join(__dirname, '../config/chatbot.js
       }
       if (req.method === 'POST' && rota === '/api/simular') {
         const dados = await lerCorpo(req);
-        if (!objeto(dados) || typeof dados.texto !== 'string' || dados.texto.length > 8000 || (dados.estado !== undefined && !objeto(dados.estado)) || (dados.midia !== undefined && typeof dados.midia !== 'boolean' && typeof dados.midia !== 'string') || (dados.usosIA !== undefined && !Number.isInteger(dados.usosIA)) || (dados.eventoId !== undefined && typeof dados.eventoId !== 'string') || (dados.incluirRascunhos !== undefined && typeof dados.incluirRascunhos !== 'boolean')) throw erroHttp(400, 'Envie um texto de até 8.000 caracteres e um estado de conversa válido.');
+        if (!objeto(dados) || typeof dados.texto !== 'string' || dados.texto.length > 8000 || (dados.estado !== undefined && !objeto(dados.estado)) || (dados.midia !== undefined && typeof dados.midia !== 'boolean' && typeof dados.midia !== 'string') || (dados.usosIA !== undefined && !Number.isInteger(dados.usosIA)) || (dados.eventoId !== undefined && typeof dados.eventoId !== 'string') || (dados.incluirRascunhos !== undefined && typeof dados.incluirRascunhos !== 'boolean') || (dados.sessao !== undefined && (typeof dados.sessao !== 'string' || !SESSAO.test(dados.sessao)))) throw erroHttp(400, 'Envie um texto de até 8.000 caracteres e um estado de conversa válido.');
         const validacao = validarConfig(dados.config);
         if (validacao.erros.length) throw erroHttp(422, 'Revise a configuração antes de simular.', validacao);
         return responder(res, 200, await simularConversa(dados, { chaveIA, fetchIA, usosRecentes }));

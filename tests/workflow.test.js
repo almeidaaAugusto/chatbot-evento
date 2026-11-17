@@ -305,7 +305,7 @@ test('limites da IA: por contato, por dia e sem gastar cota com quem já passou 
 test('resposta da IA substitui a orientação e reinicia o fallback; falha mantém a orientação', async () => {
   const base = { ...mensagemBase('duvida'), intencao: 'nao_entendi', origem: 'fallback_esgotado', resposta: '', silenciar: true,
     motivo: 'fallback_esgotado', transferir: false, estado: { falhas: 3 }, valorConversa: '{"falhas":3}', ttlConversa: 1800,
-    chaves: { iguais: 'rep:5599012345@c.us:nao_entendi:abc' }, ia: { usar: true, liberada: true } };
+    sessao: 'default', chaves: { iguais: 'rep:default:5599012345@c.us:nao_entendi:abc' }, ia: { usar: true, liberada: true } };
   const aplicar = async corpo => (await codigoDoNo('Aplicar resposta da IA')(
     () => ({ first: () => ({ json: base }) }), { first: () => ({ json: corpo }) }))[0].json;
 
@@ -322,7 +322,7 @@ test('resposta da IA substitui a orientação e reinicia o fallback; falha mant�
   assert.equal(ok.estado.ultimaIntencao, 'ia');
   assert.deepEqual(JSON.parse(ok.valorConversa), ok.estado);
   assert.doesNotMatch(ok.valorConversa, /estacionamento|duvida/, 'o contexto guarda só a assinatura da resposta');
-  assert.match(ok.chaves.iguais, /^rep:5599012345@c\.us:ia:[a-f0-9]{1,8}$/);
+  assert.match(ok.chaves.iguais, /^rep:default:5599012345@c\.us:ia:[a-f0-9]{1,8}$/);
 
   for (const [corpo, resultado] of [
     [{ choices: [{ message: { content: '[[SEM_RESPOSTA]]' } }] }, 'sem_resposta'],
@@ -424,8 +424,11 @@ test('interpretar guarda nome, telefone e texto do contato só no bloco da conve
     _data: { Info: { Chat: '123456789012345@lid', Sender: '123456789012345@lid', SenderAlt: '5518991234567@s.whatsapp.net', RecipientAlt: '', PushName: 'Ana Souza' } },
   }))[0].json;
   assert.equal(recebida.acao, 'processar');
-  assert.deepEqual(recebida.registro, { conversa: '123456789012345@lid', telefone: '5518991234567', nome: 'Ana Souza', texto: 'quanto custa?', midia: false });
+  assert.deepEqual(recebida.registro, { sessao: 'default', conversa: '123456789012345@lid', telefone: '5518991234567', nome: 'Ana Souza', texto: 'quanto custa?', midia: false });
   assert.equal(recebida.contato, '***2345', 'o log de atividade continua só com os 4 últimos dígitos');
+  assert.equal(recebida.chavePausa, 'pausa:default:123456789012345@lid', 'a pausa é por número (sessão)');
+  assert.equal(recebida.chaves.ultima, 'ultima:default:123456789012345@lid');
+  assert.equal(recebida.chaves.porHora, 'taxa:123456789012345@lid', 'o limite por hora continua por contato');
 
   const doCelular = (await evento({
     id: 'true_123456789012345@lid_XYZ', timestamp: agora, from: '123456789012345@lid', fromMe: true, source: 'app', to: null, body: 'Oi, aqui é da equipe',

@@ -52,7 +52,7 @@ let sequencia = 0;
 let sequenciaConversa = 0;
 const novaConversa = () => '55990' + String(10000 + ++sequenciaConversa) + '@c.us';
 
-function montar({ de, para, texto = '', deMim = false, origem = 'app', evento = 'message.any', idade = 0, midia = false, extra = {} }) {
+function montar({ de, para, texto = '', deMim = false, origem = 'app', evento = 'message.any', idade = 0, midia = false, extra = {}, sessao = 'default' }) {
   sequencia += 1;
   const chave = 'T' + String(sequencia).padStart(7, '0');
   const conversa = deMim ? para : de;
@@ -63,7 +63,7 @@ function montar({ de, para, texto = '', deMim = false, origem = 'app', evento = 
       id: 'evt_' + chave.toLowerCase(),
       timestamp: Date.now(),
       event: evento,
-      session: 'default',
+      session: sessao,
       me: { id: NUMERO_DO_ROBO, pushName: 'Robô de teste' },
       payload: {
         id: deMim + '_' + conversa + '_' + chave,
@@ -1045,6 +1045,60 @@ async function principal() {
       const m = await mandar({ de, texto: 'oi' });
       igual(m.linha.intencao, 'sem_eventos', 'intenção sem eventos');
       igual(await ultimaResposta(de), 'Sem eventos agora. Veja ' + cfg.evento.instagram, 'texto sem_eventos');
+    });
+
+    // ---------- vários números (uma sessão do WAHA por número) ----------
+    secao('Vários números (sessões do WAHA)');
+    const comNumeros = (eventos) => ({
+      ...v2(eventos),
+      numeros: [{ sessao: 'numx', nome: 'Número X' }, { sessao: 'numz', nome: 'Número Z' }],
+    });
+    await usarConfig(comNumeros([
+      { ...evento('alfa-teste', 'Evento Alfa', 'alfa'), numeros: ['numx'] },
+      { ...evento('beta-teste', 'Evento Beta', 'beta'), numeros: ['numz'] },
+    ]));
+    const sessoesDe = async (conversa) => (await enviosPara(conversa)).map((e) => e.corpo.session);
+    await teste('números: cada sessão responde com o seu evento, sem menu de eventos, e envia pela sessão certa', async () => {
+      const de = novaConversa();
+      let m = await mandar({ de, texto: 'oi', sessao: 'numx' });
+      igual(m.linha.intencao, 'menu', 'número X vai direto ao menu do seu único evento');
+      verdadeiro((await ultimaResposta(de)).startsWith('Menu do Evento Alfa'), 'número X deve mostrar o evento Alfa');
+      m = await mandar({ de, texto: 'oi', sessao: 'numz' });
+      igual(m.linha.intencao, 'menu', 'número Z vai direto ao menu do seu único evento');
+      verdadeiro((await ultimaResposta(de)).startsWith('Menu do Evento Beta'), 'número Z deve mostrar o evento Beta');
+      igual((await sessoesDe(de)).join(','), 'numx,numz', 'cada resposta sai pela sessão que recebeu a mensagem');
+    });
+    await teste('números: o gatilho de outro número não vaza para este', async () => {
+      const de = novaConversa();
+      await mandar({ de, texto: 'quero saber do beta', sessao: 'numx' });
+      const texto = await ultimaResposta(de);
+      verdadeiro(!texto.includes('Evento Beta'), 'número X não conhece o evento Beta');
+      igual((await sessoesDe(de)).join(','), 'numx', 'resposta pela sessão X');
+    });
+    await teste('números: a pausa em um número não pausa o mesmo contato no outro', async () => {
+      const de = novaConversa();
+      await mandar({ de, texto: 'oi', sessao: 'numx' });
+      await mandar({ de, texto: 'oi', sessao: 'numz' });
+      const pausa = await mandar({ deMim: true, para: de, texto: '#humano', sessao: 'numx' });
+      igual(pausa.linha.resultado, 'robo_pausado', 'pausa no número X');
+      const calado = await mandar({ de, texto: '1', sessao: 'numx' });
+      igual(calado.linha.motivo, 'em_atendimento_humano', 'número X está em silêncio');
+      const resp = await mandar({ de, texto: '1', sessao: 'numz' });
+      igual(resp.linha.resultado, 'respondida', 'número Z continua respondendo');
+      igual((await sessoesDe(de)).pop(), 'numz', 'resposta pela sessão Z');
+    });
+    await usarConfig(comNumeros([
+      { ...evento('alfa-teste', 'Evento Alfa', 'alfa'), numeros: ['numx'] },
+      evento('geral-teste', 'Evento Geral', 'geral'),
+    ]));
+    await teste('números: evento sem número é atendido por todos; número com dois eventos mostra o menu de eventos', async () => {
+      const dex = novaConversa();
+      const m = await mandar({ de: dex, texto: 'oi', sessao: 'numx' });
+      igual(m.linha.intencao, 'escolher_evento', 'número X tem dois eventos');
+      const dez = novaConversa();
+      const z = await mandar({ de: dez, texto: 'oi', sessao: 'numz' });
+      igual(z.linha.intencao, 'menu', 'número Z só tem o evento geral');
+      verdadeiro((await ultimaResposta(dez)).startsWith('Menu do Evento Geral'), 'número Z mostra o evento geral');
     });
   } finally {
     fs.writeFileSync(arquivoCfg, original);

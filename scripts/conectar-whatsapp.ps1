@@ -5,6 +5,8 @@
 #   ... -Status        So mostra a situacao da sessao.
 #   ... -Parar         Para a sessao (o numero continua pareado; os contatos ficam sem resposta).
 #   ... -Desconectar   Desfaz o pareamento (para trocar de numero).
+#   ... -Listar        Mostra todas as sessoes (numeros) do WAHA e a situacao de cada uma.
+#   ... -Numero loja2  Age sobre outra sessao (outro numero). Padrao: default. Vale para todas as acoes.
 #
 # USE UM NUMERO DE TESTE. A integracao via WhatsApp Web nao e oficial e a conta pode
 # sofrer restricoes. Nao use o numero principal do evento durante os testes.
@@ -12,6 +14,8 @@ param(
     [switch]$Status,
     [switch]$Parar,
     [switch]$Desconectar,
+    [switch]$Listar,
+    [string]$Numero = 'default',
     [switch]$NaoAbrir,
     [int]$TempoMaximo = 300
 )
@@ -19,7 +23,8 @@ param(
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot '_comum.ps1')
 
-$sessao = 'default'
+if ($Numero -notmatch '^[a-zA-Z0-9_-]{1,54}$') { throw 'Nome de numero (sessao) invalido: use de 1 a 54 caracteres entre letras, numeros, hifen e sublinhado.' }
+$sessao = $Numero
 
 function Get-Sessao {
     $r = Invoke-Waha -Rota "/api/sessions/$sessao"
@@ -31,7 +36,7 @@ function Get-Sessao {
 
 function Show-Sessao($s) {
     if ($null -eq $s) { Write-Host 'Sessao ainda nao criada (nenhum numero conectado).'; return }
-    Write-Host "Situacao da sessao: $($s.status)"
+    Write-Host "Numero (sessao) '$sessao' - situacao: $($s.status)"
     if ($s.me -and $s.me.id) {
         $digitos = ($s.me.id -split '@')[0]
         $final = if ($digitos.Length -ge 4) { $digitos.Substring($digitos.Length - 4) } else { $digitos }
@@ -41,6 +46,20 @@ function Show-Sessao($s) {
 
 $ping = Invoke-Waha -Rota '/ping'
 if ($ping.Status -ne 200) { throw 'O WAHA nao esta respondendo. Rode: docker compose up -d  (e aguarde cerca de 1 minuto)' }
+
+if ($Listar) {
+    $r = Invoke-Waha -Rota '/api/sessions?all=true'
+    if ($r.Status -ne 200) { throw "Nao foi possivel listar as sessoes (HTTP $($r.Status))." }
+    $todas = @($r.Corpo)
+    if ($todas.Count -eq 0) { Write-Host 'Nenhuma sessao criada ainda.'; exit 0 }
+    $todas | ForEach-Object {
+        $tel = ''
+        if ($_.me -and $_.me.id) { $tel = ($_.me.id -split '@')[0]; $tel = $tel -replace ':.*$', '' }
+        [pscustomobject]@{ Sessao = $_.name; Situacao = $_.status; Telefone = $tel; Nome = if ($_.me) { $_.me.pushName } else { '' } }
+    } | Format-Table -AutoSize
+    Write-Host 'Cadastre cada numero no painel (Produtora > Numeros de WhatsApp) com o mesmo nome de sessao.'
+    exit 0
+}
 
 if ($Status) { Show-Sessao (Get-Sessao); exit 0 }
 
@@ -132,6 +151,7 @@ if ($conectado) {
     Write-Host ''
     Write-Host 'WhatsApp conectado. O chatbot ja esta respondendo.'
     Show-Sessao (Get-Sessao)
+    if ($sessao -ne 'default') { Write-Host "Lembrete: cadastre este numero no painel (Produtora > Numeros de WhatsApp) com o nome de sessao '$sessao' e ligue os eventos a ele." }
     exit 0
 }
 

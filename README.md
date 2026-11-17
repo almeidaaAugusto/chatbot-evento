@@ -76,6 +76,10 @@ Quando conectar, o robô já está respondendo.
 | Ver se está conectado | `... scripts\conectar-whatsapp.ps1 -Status` |
 | Parar de responder sem desfazer o pareamento | `... scripts\conectar-whatsapp.ps1 -Parar` |
 | Desfazer o pareamento (trocar de número) | `... scripts\conectar-whatsapp.ps1 -Desconectar` |
+| Listar todas as sessões (números) do WAHA | `... scripts\conectar-whatsapp.ps1 -Listar` |
+
+Esses comandos valem para o número padrão (`default`). Para outro número, acrescente
+`-Numero <sessão>`, por exemplo `-Numero loja2`. Veja **Vários números**.
 
 Também dá para fazer pelo painel do WAHA (http://localhost:3000/dashboard). O usuário e a
 senha estão no `.env` (`WAHA_DASHBOARD_USERNAME` / `WAHA_DASHBOARD_PASSWORD`); se o painel
@@ -170,7 +174,7 @@ como sempre.
 
 **Gatilhos**: escolha termos que só aquele evento usa (nome do evento, do artista, da
 atração). Eles são comparados sem acento nem maiúsculas, como frase inteira. Dois eventos
-`ativo` não podem repetir o mesmo gatilho. Evite palavras genéricas ("baile", "ingresso").
+`ativo` que podem atender o mesmo número não podem repetir o mesmo gatilho (ver **Vários números**). Evite palavras genéricas ("baile", "ingresso").
 
 **Validação**: erro em evento `ativo` bloqueia o salvamento; erros em `rascunho` ou
 `encerrado` viram avisos (prefixados com `eventos[i] (id):`), para que um rascunho
@@ -185,6 +189,75 @@ node scripts/migrar-config.js config/chatbot.json --id meu-evento --status ativo
 Cria o formato v2, guarda o original em `config/chatbot.json.v1.bak` e mostra o resultado
 da validação (não grava se houver erros). Instagram, e-mail e Linktree passam para
 `produtora`; menu, `nao_entendi`, opções e conhecimento da IA vão para o evento.
+
+## Vários números
+
+Um único WAHA aceita várias sessões. Cada número de WhatsApp é uma sessão, e o **nome da
+sessão** identifica o número no robô. O número atual é a sessão `default`.
+
+**Conectar outro número**
+
+```
+powershell -ExecutionPolicy Bypass -File scripts\conectar-whatsapp.ps1 -Numero loja2
+```
+
+O nome da sessão tem de 1 a 54 caracteres: letras, números, hífen (`-`) e sublinhado (`_`).
+A opção `-Numero` vale também para `-Status`, `-Parar` e `-Desconectar`. Para ver todas as
+sessões do WAHA, com a situação e o telefone de cada uma, use `-Listar`.
+
+Depois de conectar, cadastre o número para o robô conhecê-lo:
+
+1. Em **Produtora (geral) > "Números de WhatsApp"** (painel), adicione o número com o **mesmo
+   nome de sessão** e um nome amigável (por exemplo, "Caixa Preta").
+2. Salve. Isso grava o campo `numeros` da raiz de `config/chatbot.json`:
+
+```json
+"numeros": [
+  { "sessao": "default", "nome": "Caixa Preta" },
+  { "sessao": "loja2", "nome": "Loja 2" }
+]
+```
+
+**Ligar eventos a um número**
+
+No cartão de cada evento, o campo **"Atende nos números"** (`numeros` do evento) lista os
+nomes de sessão que atendem aquele evento.
+
+- Evento sem nenhum número marcado é atendido por **todos** os números.
+- Exemplo: o número `loja2` atende só o evento A; o número `default` atende só o evento B.
+
+Dentro de cada número, as regras valem separadamente: gatilhos, menu de eventos, evento
+lembrado (24 horas) e `mensagens.sem_eventos`. Se um número não tem nenhum evento ativo para
+ele, responde só `mensagens.sem_eventos`.
+
+Sem o campo `numeros` na raiz, qualquer sessão atende todos os eventos, como antes.
+
+**Estado e limites**
+
+- O estado da conversa (menu, evento escolhido, etapa do fallback) e a pausa de atendimento
+  humano são separados por número: o mesmo contato pode conversar com dois números sem um
+  interferir no outro.
+- Os limites anti-abuso (taxa por hora e limites da IA) continuam **por contato**, somando as
+  mensagens de todos os números.
+
+**Validação**
+
+- Sessão repetida ou inválida: erro.
+- Evento com número não cadastrado: erro (vira aviso se o evento for `rascunho` ou `encerrado`).
+- Dois eventos com o mesmo gatilho: erro só se os dois puderem ser atendidos no mesmo número.
+- Número cadastrado sem nenhum evento ativo: aviso.
+
+**Atendimento e painel**
+
+- `scripts\atendimento.ps1` mostra o número (sessão) de cada contato pausado. Com
+  `-Numero <sessão>` mostra só os contatos de um número. Pausas gravadas antes desta mudança
+  (sem sessão) continuam válidas.
+- No painel, o simulador tem o seletor **Número**, e a página Conversas mostra por qual número
+  cada conversa chegou.
+
+> **Aviso de risco.** Cada número conectado pelo WAHA (WhatsApp Web não oficial) corre o mesmo
+> risco de bloqueio ou restrição descrito no início deste documento. Teste com números de teste
+> primeiro e só depois conecte os números da produtora.
 
 ## Editar as mensagens prontas
 
@@ -536,7 +609,8 @@ entre versões e engines; por isso teste antes.
 - Só mensagens de texto são interpretadas; foto ou áudio sem texto recebem orientação para
   escrever (`fallback.mensagem_midia`, seguindo depois as etapas do fallback).
   Com `protecoes.responder_midia_com_menu: false`, são ignorados. Não há transcrição de áudio.
-- Um único número de WhatsApp (sessão `default`).
+- Cada número de WhatsApp é uma sessão do WAHA e corre o risco descrito no aviso do início
+  (ver **Vários números**). O padrão é um único número (sessão `default`).
 - O robô informa o Instagram ao contato, mas não avisa a equipe nem se integra ao Instagram.
 - A IA pode errar em fatos escritos por extenso (a conferência automática cobre links,
   contatos e valores em R$, não datas ou nomes). Ela não lembra a conversa anterior, só o

@@ -28,6 +28,7 @@
         <div id="seletor-evento" class="seletor-evento" hidden>
           <label class="campo-seletor" for="evento-atual"><span>Editando</span><select id="evento-atual" disabled></select></label>
           <span id="selo-status" class="selo-status" hidden></span>
+          <span id="numeros-evento" class="numeros-evento" hidden></span>
           <div class="seletor-acoes"><button id="novo-evento" class="botao botao-secundario" type="button"><span aria-hidden="true">＋</span> Novo evento</button><button id="remover-evento" class="botao botao-discreto" type="button">Remover evento</button></div>
         </div>
         <div id="aviso-v1" class="converter" hidden>
@@ -45,6 +46,12 @@
             <p class="descricao">Valem para todos os eventos. Os campos da produtora podem ser usados como <code>{{instagram}}</code> em qualquer texto.</p>
             <div id="campos-produtora" class="grade-campos"></div>
             <div id="campos-mensagens-gerais"></div>
+          </fieldset>
+          <fieldset id="numeros-cartao" class="cartao" disabled hidden>
+            <legend><span class="numero-secao">00</span> Números de WhatsApp</legend>
+            <p class="descricao">Cada número conectado ao robô é uma <strong>sessão</strong> do WAHA. O nome da sessão é o mesmo usado em <code>scripts\conectar-whatsapp.ps1 -Numero &lt;sessao&gt;</code> (o número atual é <code>default</code>). O nome é só para você reconhecer o número aqui no painel. Em cada evento você escolhe em quais números ele é atendido.</p>
+            <div id="lista-numeros"></div>
+            <button id="adicionar-numero" class="botao botao-secundario botao-largo" type="button"><span aria-hidden="true">＋</span> Adicionar um número</button>
           </fieldset>
           <fieldset id="dados" class="cartao" disabled>
             <legend><span class="numero-secao">01</span> Dados do evento</legend>
@@ -84,6 +91,9 @@
         <div id="area-simular-como" class="simular-como" hidden>
           <label class="campo-seletor" for="simular-como"><span>Simular como</span><select id="simular-como"></select></label>
           <label id="rotulo-rascunhos" class="marcar-rascunhos"><input id="incluir-rascunhos" type="checkbox"> Incluir rascunhos na escolha do evento</label>
+        </div>
+        <div id="area-simular-numero" class="simular-como" hidden>
+          <label class="campo-seletor" for="simular-numero"><span>Número</span><select id="simular-numero"></select></label>
         </div>
         <div class="conversa">
           <div class="conversa-cabecalho"><span class="avatar" aria-hidden="true">✳</span><div><strong id="nome-conversa">Atendimento do evento</strong><small>Prévia local · nenhuma mensagem é enviada</small></div></div>

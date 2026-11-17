@@ -14,7 +14,7 @@ const multiEvento = Eventos.ehMultiEvento(base.config);
 if (multiEvento && !(Date.now() - Number(estado.momento) <= 1800000)) {
   estado = typeof estado.evento === 'string' ? { evento: estado.evento } : {};
 }
-const resolvido = Eventos.resolver(base.config, base.texto, estado, { midia: base.midia });
+const resolvido = Eventos.resolver(base.config, base.texto, estado, { midia: base.midia, sessao: base.sessao });
 if (!resolvido.silenciar && !String(resolvido.resposta ?? '').trim()) {
   throw new Error('Resposta vazia. Confira o conteúdo no painel do chatbot.');
 }
@@ -59,5 +59,5 @@ return [{ json: {
   ia,
   valorConversa: JSON.stringify(multiEvento ? { ...resolvido.estado, momento: Date.now() } : resolvido.estado),
   ttlConversa: multiEvento ? 86400 : 1800,
-  chaves: { ...base.chaves, iguais: 'rep:' + base.chatId + ':' + identificador },
+  chaves: { ...base.chaves, iguais: 'rep:' + base.sessao + ':' + base.chatId + ':' + identificador },
 } }];

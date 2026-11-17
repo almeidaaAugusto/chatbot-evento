@@ -25,6 +25,6 @@ return [{ json: {
   motivo: undefined,
   estado,
   valorConversa: JSON.stringify(estado),
-  chaves: { ...base.chaves, iguais: 'rep:' + base.chatId + ':ia:' + marca },
+  chaves: { ...base.chaves, iguais: 'rep:' + base.sessao + ':' + base.chatId + ':ia:' + marca },
   ia: { ...base.ia, resultado: 'respondeu' },
 } }];

@@ -15,6 +15,9 @@ const nomesStatus = { ativo: 'Ativo', rascunho: 'Rascunho', encerrado: 'Encerrad
 const nomesProdutora = { nome: 'Nome da produtora', instagram: 'Instagram', email: 'E-mail', linktree: 'Página com todos os links' };
 const textoSemEventos = 'No momento não temos eventos com atendimento aberto. Acompanhe as novidades no nosso Instagram: {{instagram}}';
 const textoEscolherEvento = 'Sobre qual evento você quer falar?\n\n{{eventos}}\n\nDigite o número do evento.';
+const numerosNovos = new Set(); // números criados nesta sessão (a sessão ainda pode mudar)
+const numerosCadastrados = () => (Array.isArray(config?.numeros) ? config.numeros : []);
+const nomeDoNumero = sessao => numerosCadastrados().find(n => n.sessao === sessao)?.nome || sessao;
 const multi = () => Boolean(config) && Array.isArray(config.eventos);
 const eventoAtual = () => (multi() && typeof selecionado === 'number' ? config.eventos[selecionado] || null : null);
 const emProdutora = () => multi() && !eventoAtual();
@@ -166,10 +169,10 @@ function mostrar(id, visivel) { $('#' + id).hidden = !visivel; }
 function renderizar() {
   const v2 = multi(); const ev = eventoAtual(); const prod = emProdutora();
   mostrar('seletor-evento', v2); mostrar('aviso-v1', !v2);
-  for (const [id, visivel] of [['identidade', Boolean(ev)], ['produtora-cartao', prod], ['dados', !prod], ['mensagens', !prod], ['opcoes', !prod]]) mostrar(id, visivel);
+  for (const [id, visivel] of [['identidade', Boolean(ev)], ['produtora-cartao', prod], ['numeros-cartao', prod], ['dados', !prod], ['mensagens', !prod], ['opcoes', !prod]]) mostrar(id, visivel);
   $('#remover-evento').hidden = !ev; $('#nota-ia-evento').hidden = !ev;
   $('#area-simular-como').hidden = !v2;
-  if (v2) { atualizarSeletores(); renderizarIdentidade(); renderizarProdutora(); }
+  if (v2) { atualizarSeletores(); renderizarIdentidade(); renderizarProdutora(); renderizarNumeros(); }
   const evento = $('#campos-evento'); evento.replaceChildren();
   const campos = $('#campo-menu'); campos.replaceChildren(); $('#campos-mensagens').replaceChildren(); $('#lista-opcoes').replaceChildren();
   if (!prod) {
@@ -211,6 +214,7 @@ function atualizarSeletores() {
   atualizarRotulos();
   simular.value = [...simular.options].some(o => o.value === anterior) ? anterior : '';
   $('#rotulo-rascunhos').hidden = simular.value !== '';
+  atualizarNumerosSimulador();
 }
 
 // Atualiza só os textos (nome, status, id) sem perder a seleção.
@@ -224,6 +228,9 @@ function atualizarRotulos() {
   const ev = eventoAtual(); const selo = $('#selo-status');
   selo.hidden = !ev;
   if (ev) { selo.textContent = nomesStatus[ev.status] || ev.status; selo.dataset.status = ev.status; }
+  const numeros = $('#numeros-evento');
+  numeros.hidden = !ev || !numerosCadastrados().length;
+  if (ev) numeros.textContent = (ev.numeros || []).length ? 'Atende em: ' + ev.numeros.map(nomeDoNumero).join(', ') : 'Atende em todos os números';
 }
 
 function renderizarIdentidade() {
@@ -239,7 +246,84 @@ function renderizarIdentidade() {
   sel.addEventListener('change', () => { ev.status = sel.value; atualizarRotulos(); mudou(); });
   status.append(t, sel);
   const gatilhos = campo({ titulo: 'Gatilhos', valor: (ev.gatilhos || []).join('\n'), linhas: true, classe: 'campo-largo', ajuda: 'Uma palavra ou frase por linha. Quando o contato escreve um deles, o robô passa a falar deste evento. Ex.: nome da atração.', mudar: valor => { ev.gatilhos = listaTexto(valor); } });
-  area.append(id, status, gatilhos);
+  area.append(id, status, gatilhos, caixasNumeros(ev));
+}
+
+// "Atende nos números": uma caixa por número cadastrado; nenhuma marcada = todos os números.
+function caixasNumeros(ev) {
+  const caixa = document.createElement('div'); caixa.className = 'campo caixas-numeros';
+  const t = document.createElement('span'); t.textContent = 'Atende nos números'; caixa.append(t);
+  const cadastrados = numerosCadastrados();
+  const ajuda = document.createElement('small');
+  if (!cadastrados.length) {
+    ajuda.textContent = 'Nenhum número cadastrado: este evento é atendido em qualquer número conectado. Para separar eventos por número, cadastre os números em “Produtora (geral)”.';
+    caixa.append(ajuda); return caixa;
+  }
+  const opcoes = cadastrados.map(n => ({ sessao: n.sessao, rotulo: (n.nome || n.sessao) + ' (' + n.sessao + ')' }));
+  for (const sessao of ev.numeros || []) if (!cadastrados.some(n => n.sessao === sessao)) opcoes.push({ sessao, rotulo: sessao + ' (não cadastrado)' });
+  for (const opcao of opcoes) {
+    const label = document.createElement('label'); label.className = 'campo campo-marcar';
+    const input = document.createElement('input'); input.type = 'checkbox'; input.checked = (ev.numeros || []).includes(opcao.sessao);
+    const nome = document.createElement('span'); nome.textContent = opcao.rotulo;
+    input.addEventListener('change', () => {
+      const marcados = new Set(ev.numeros || []);
+      if (input.checked) marcados.add(opcao.sessao); else marcados.delete(opcao.sessao);
+      const ordem = opcoes.map(o => o.sessao).filter(sessao => marcados.has(sessao));
+      if (ordem.length) ev.numeros = ordem; else delete ev.numeros;
+      atualizarRotulos(); mudou();
+    });
+    label.append(input, nome); caixa.append(label);
+  }
+  ajuda.textContent = 'Nenhuma marcada: o evento é atendido em todos os números.';
+  caixa.append(ajuda);
+  return caixa;
+}
+
+// Cartão "Números de WhatsApp" da produtora.
+function renderizarNumeros() {
+  const lista = $('#lista-numeros'); lista.replaceChildren();
+  if (!emProdutora()) return;
+  const numeros = numerosCadastrados();
+  if (!numeros.length) {
+    const vazio = document.createElement('p'); vazio.className = 'vazio-numeros';
+    vazio.textContent = 'Nenhum número cadastrado: todos os eventos são atendidos em qualquer número conectado.';
+    lista.append(vazio);
+  }
+  numeros.forEach((numero, indice) => {
+    const linha = document.createElement('div'); linha.className = 'linha-numero';
+    const sessao = campo({ titulo: 'Sessão (nome no WAHA)', valor: numero.sessao, obrigatorio: true, padrao: '[a-zA-Z0-9_-]{1,54}', maximo: 54, ajuda: numerosNovos.has(numero) ? 'Letras, números, hífen e sublinhado. Depois de salvar, não muda mais.' : 'Não pode ser alterada depois de salva.', mudar: valor => {
+      for (const ev of config.eventos || []) if (ev.numeros) ev.numeros = ev.numeros.map(item => (item === numero.sessao ? valor : item));
+      numero.sessao = valor; atualizarRotulos(); atualizarNumerosSimulador();
+    } });
+    if (!numerosNovos.has(numero)) sessao.querySelector('input').readOnly = true;
+    const nome = campo({ titulo: 'Nome do número', valor: numero.nome || '', obrigatorio: true, ajuda: 'Como o painel mostra este número.', mudar: valor => { numero.nome = valor; atualizarRotulos(); atualizarNumerosSimulador(); } });
+    const remover = document.createElement('button'); remover.type = 'button'; remover.className = 'botao-remover'; remover.textContent = 'Remover';
+    remover.setAttribute('aria-label', 'Remover o número ' + (numero.nome || numero.sessao));
+    remover.addEventListener('click', () => {
+      const usados = (config.eventos || []).filter(ev => (ev.numeros || []).includes(numero.sessao));
+      // Um evento que só usa este número passaria a ser atendido em todos os números: bloqueia.
+      const dependentes = usados.filter(ev => ev.numeros.length === 1);
+      if (dependentes.length) {
+        const nomes = dependentes.map(ev => '“' + (ev.evento?.nome || ev.id) + '”').join(', ');
+        return feedback('Não é possível remover este número: ' + nomes + ' só é atendido por ele. Marque outro número nesse evento (ou remova o evento) antes.', true);
+      }
+      if (usados.length && !confirm('O número “' + (numero.nome || numero.sessao) + '” é usado por ' + usados.length + ' evento(s), que também têm outros números. Ao remover, ele sai desses eventos. Continuar?')) return;
+      for (const ev of usados) ev.numeros = ev.numeros.filter(item => item !== numero.sessao);
+      numerosNovos.delete(numero); numeros.splice(indice, 1);
+      if (!numeros.length) delete config.numeros;
+      renderizarNumeros(); atualizarRotulos(); atualizarNumerosSimulador(); mudou();
+      $('#adicionar-numero').focus();
+    });
+    linha.append(sessao, nome, remover); lista.append(linha);
+  });
+}
+
+function atualizarNumerosSimulador() {
+  if (!multi()) { $('#area-simular-numero').hidden = true; return; }
+  const select = $('#simular-numero'); const anterior = select.value; select.replaceChildren();
+  for (const n of numerosCadastrados()) { const o = document.createElement('option'); o.value = n.sessao; o.textContent = (n.nome || n.sessao) + ' (' + n.sessao + ')'; select.append(o); }
+  if ([...select.options].some(o => o.value === anterior)) select.value = anterior;
+  $('#area-simular-numero').hidden = !numerosCadastrados().length || $('#simular-como').value !== '';
 }
 
 function renderizarProdutora() {
@@ -363,7 +447,7 @@ async function simular(midia = false) {
   $('#erro-simulador').hidden = true;
   try {
     const corpo = { config: structuredClone(config), texto: midia ? '' : texto, estado: estadoConversa, midia, usosIA };
-    if (multi()) { const como = $('#simular-como').value; if (como) corpo.eventoId = como; else corpo.incluirRascunhos = $('#incluir-rascunhos').checked; }
+    if (multi()) { const como = $('#simular-como').value; if (como) corpo.eventoId = como; else { corpo.incluirRascunhos = $('#incluir-rascunhos').checked; if (numerosCadastrados().length && $('#simular-numero').value) corpo.sessao = $('#simular-numero').value; } }
     const resultado = await api('/api/simular', 'POST', corpo);
     balao(midia ? 'Áudio ou imagem sem legenda' : texto, 'usuario');
     if (resultado.ia?.resultado && resultado.ia.resultado !== 'respondeu') balao('IA não usada: ' + (resultadosIA[resultado.ia.resultado] || resultado.ia.resultado) + '.', 'silencio');
@@ -426,7 +510,17 @@ function trocarSelecao(valor) {
 }
 
 $('#evento-atual').addEventListener('change', () => { const v = $('#evento-atual').value; trocarSelecao(v === 'produtora' ? 'produtora' : Number(v)); });
-$('#simular-como').addEventListener('change', () => { $('#rotulo-rascunhos').hidden = $('#simular-como').value !== ''; reiniciarConversa(); });
+$('#simular-como').addEventListener('change', () => { $('#rotulo-rascunhos').hidden = $('#simular-como').value !== ''; atualizarNumerosSimulador(); reiniciarConversa(); });
+$('#simular-numero').addEventListener('change', reiniciarConversa);
+$('#adicionar-numero').addEventListener('click', () => {
+  config.numeros ||= [];
+  const usadas = new Set(config.numeros.map(n => n.sessao));
+  let i = config.numeros.length + 1; while (usadas.has('numero' + i)) i++;
+  const novo = { sessao: 'numero' + i, nome: 'Novo número' };
+  config.numeros.push(novo); numerosNovos.add(novo);
+  renderizarNumeros(); atualizarNumerosSimulador(); mudou();
+  const campos = $('#lista-numeros').querySelectorAll('.linha-numero:last-child input'); if (campos[0]) campos[0].focus();
+});
 $('#incluir-rascunhos').addEventListener('change', reiniciarConversa);
 
 $('#nome-novo').addEventListener('input', () => {
