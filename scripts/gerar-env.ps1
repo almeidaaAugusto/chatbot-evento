@@ -7,6 +7,7 @@
 param([switch]$Forcar)
 
 $ErrorActionPreference = 'Stop'
+if ($env:CHATBOT_VPS -eq '1') { Write-Host 'gerar-env.ps1 so vale no PC (o .env do servidor vem do PC pelo vps.ps1 -Enviar).'; exit 1 }
 $raiz = Split-Path -Parent $PSScriptRoot
 $modelo = Join-Path $raiz '.env.example'
 $destino = Join-Path $raiz '.env'

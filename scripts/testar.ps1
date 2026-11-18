@@ -8,6 +8,7 @@ param([switch]$Manter)
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot '_comum.ps1')
+if ($script:ModoVps) { Write-Host 'testar.ps1 so vale no PC (usa um ambiente de teste local).'; exit 1 }
 Assert-Docker
 
 $compose = Join-Path (Get-Raiz) 'tests\docker-compose.test.yml'

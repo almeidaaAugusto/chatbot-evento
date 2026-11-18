@@ -147,7 +147,7 @@ services:
     logging: *logging
 
   waha:
-    image: devlikeapro/waha:gows-2026.10.1
+    image: devlikeapro/waha:${WAHA_IMAGEM:-gows-2026.10.1}
     restart: unless-stopped
     depends_on:
       n8n:

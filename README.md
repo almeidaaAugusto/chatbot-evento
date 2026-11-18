@@ -61,6 +61,16 @@ docker compose up -d
 O primeiro comando cria o `.env` com chaves aleatórias. Na primeira subida o serviço
 `n8n-init` importa as credenciais e os dois workflows e publica (ativa) o chatbot.
 
+## Rodar na VPS (Oracle)
+
+O robô pode rodar 24 horas numa VM gratuita da Oracle Cloud, sem depender deste computador.
+O passo a passo para iniciantes está em [docs/vps-oracle.md](docs/vps-oracle.md). Resumo:
+
+- Crie a VM (Ubuntu 24.04, ARM, 2 OCPU e 12 GB), converta a conta para Pay As You Go e crie um alerta de orçamento.
+- `powershell -ExecutionPolicy Bypass -File scripts\vps.ps1 -Configurar -Servidor <IP>` e depois `-Instalar` preparam o servidor (uma vez).
+- Pare o robô do PC (`docker compose down`), rode `scripts\vps.ps1 -Enviar` e conecte o WhatsApp com `-Script conectar-whatsapp`.
+- Painel, WAHA e n8n ficam acessíveis só pelo túnel SSH (`scripts\vps.ps1 -Tunel`), nunca pela internet.
+
 ## Conectar o WhatsApp
 
 ```

@@ -19,8 +19,20 @@ Set-Location (Get-Raiz)
 if ($Exportar) {
     $destino = Join-Path (Get-Raiz) 'logs'
     New-Item -ItemType Directory -Force -Path $destino | Out-Null
-    Invoke-Externo { docker compose cp n8n:/files/logs/. $destino } -Silencioso
-    if ($LASTEXITCODE -ne 0) { throw 'Nao foi possivel copiar os logs. O n8n esta no ar? Rode: docker compose up -d' }
+    if ($script:ModoVps) {
+        # Copia dentro do servidor e baixa os arquivos .log para a pasta logs\ deste computador.
+        $c = Get-VpsConfig
+        $tmp = '.logs-exportados'
+        Invoke-Externo { Invoke-VpsSsh ('cd ' + (ConvertTo-BashArg $c.Pasta) + ' && rm -rf ' + $tmp + ' && mkdir ' + $tmp) } -Silencioso
+        Invoke-Externo { docker compose cp n8n:/files/logs/. $tmp } -Silencioso
+        if ($LASTEXITCODE -ne 0) { throw 'Nao foi possivel copiar os logs. O n8n esta no ar? Rode: docker compose up -d' }
+        $nomes = @(Invoke-Externo { Invoke-VpsSsh ('cd ' + (ConvertTo-BashArg $c.Pasta) + '/' + $tmp + ' && ls -1 *.log 2>/dev/null; true') } | Where-Object { $_ -match '^[A-Za-z0-9._-]+\.log$' })
+        foreach ($nome in $nomes) { Copy-DaVps ($c.Pasta + '/' + $tmp + '/' + $nome) (Join-Path $destino $nome) }
+        Invoke-Externo { Invoke-VpsSsh ('cd ' + (ConvertTo-BashArg $c.Pasta) + ' && rm -rf ' + $tmp) } -Silencioso
+    } else {
+        Invoke-Externo { docker compose cp n8n:/files/logs/. $destino } -Silencioso
+        if ($LASTEXITCODE -ne 0) { throw 'Nao foi possivel copiar os logs. O n8n esta no ar? Rode: docker compose up -d' }
+    }
     $quantidade = @(Get-ChildItem -LiteralPath $destino -Filter '*.log' -File).Count
     Write-Host "$quantidade arquivo(s) de log em $destino"
     exit 0

@@ -19,3 +19,7 @@ Thumbs.db
 .DS_Store
 .vscode/
 .idea/
+
+# VPS: configuracao local do servidor e copias de seguranca baixadas
+deploy/vps.local.json
+backups/

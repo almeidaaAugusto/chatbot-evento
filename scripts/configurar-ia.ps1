@@ -37,15 +37,30 @@ if (-not $Testar) {
     if ($chave -notmatch '^[A-Za-z0-9_\-\.]{20,}$') { Write-Host 'Isso nao parece uma chave de API (so letras, numeros, _ e -). Nada foi alterado.'; exit 1 }
 
     # Grava IA_API_KEY no .env, preservando as demais linhas (UTF-8 sem BOM).
-    $linhas = @(Get-Content -LiteralPath $caminhoEnv -Encoding UTF8)
+    if ($script:ModoVps) {
+        # Modo VPS: a chave vai para o .env do SERVIDOR (o do PC nao e tocado).
+        $c = Get-VpsConfig
+        $linhas = @(Invoke-VpsSsh ('cd ' + (ConvertTo-BashArg $c.Pasta) + ' && cat .env') | ForEach-Object { "$_" })
+        if ($LASTEXITCODE -ne 0) { throw 'Nao foi possivel ler o .env do servidor. Ja rodou "vps.ps1 -Enviar"?' }
+    } else {
+        $linhas = @(Get-Content -LiteralPath $caminhoEnv -Encoding UTF8)
+    }
     $achou = $false
     $novas = foreach ($linha in $linhas) {
         if ($linha -match '^\s*IA_API_KEY\s*=') { $achou = $true; "IA_API_KEY=$chave" } else { $linha }
     }
     if (-not $achou) { $novas = @($novas) + '' + '# Chave da API de IA (scripts\configurar-ia.ps1).' + "IA_API_KEY=$chave" }
-    [System.IO.File]::WriteAllLines($caminhoEnv, [string[]]$novas, (New-Object System.Text.UTF8Encoding($false)))
+    if ($script:ModoVps) {
+        $texto = (([string[]]$novas) -join "`n") + "`n"
+        $b64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($texto))
+        Invoke-VpsSsh ('cd ' + (ConvertTo-BashArg $c.Pasta) + ' && printf %s ' + $b64 + ' | base64 -d > .env.novo && chmod 600 .env.novo && mv .env.novo .env')
+        if ($LASTEXITCODE -ne 0) { throw 'Nao foi possivel gravar o .env no servidor.' }
+        $script:EnvVps = $null
+    } else {
+        [System.IO.File]::WriteAllLines($caminhoEnv, [string[]]$novas, (New-Object System.Text.UTF8Encoding($false)))
+    }
     $chave = $null
-    Write-Host 'Chave gravada no .env.'
+    Write-Host $(if ($script:ModoVps) { 'Chave gravada no .env do servidor.' } else { 'Chave gravada no .env.' })
 }
 
 Write-Host ''
