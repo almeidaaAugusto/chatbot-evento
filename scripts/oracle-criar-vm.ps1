@@ -42,6 +42,11 @@ function Invoke-Oci {
 
 # --- conferencias ---
 
+# Trava de custo: acima disto a VM sai do Always Free e passa a ser cobrada.
+if ($Ocpus -lt 1 -or $Ocpus -gt 2 -or $MemoriaGB -lt 1 -or $MemoriaGB -gt 12) {
+    throw 'Fora do Always Free: use no maximo 2 OCPU e 12 GB (o padrao, 1 OCPU e 6 GB, ja basta para o robo).'
+}
+
 if (-not (Get-Command oci -ErrorAction SilentlyContinue)) {
     throw 'OCI CLI nao encontrado. Instale com:  python -m pip install oci-cli  (e abra um terminal novo).'
 }
