@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Métricas · Central do evento</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/metricas.js" defer></script>
+</head>
+<body class="pagina-conversas pagina-metricas">
+  <a class="pular" href="#conteudo">Pular para o conteúdo</a>
+  <header class="cabecalho">
+    <a class="marca" href="/" aria-label="Central do evento, início"><span class="marca-icone" aria-hidden="true">C</span><span>central<span class="marca-leve">doevento</span></span></a>
+    <nav class="abas" aria-label="Páginas do painel"><a href="/">Configuração</a><a href="/conversas">Conversas</a><a href="/metricas" aria-current="page">Métricas</a><a href="/whatsapp">WhatsApp</a><a href="/usuarios" id="aba-usuarios" hidden>Usuários</a></nav>
+    <span class="status-local"><span aria-hidden="true"></span>Painel</span>
+    <button type="button" id="botao-sair" class="botao botao-secundario botao-pequeno" hidden>Sair</button>
+  </header>
+  <main>
+    <div class="abertura abertura-conversas">
+      <div><p class="sobretitulo">ACOMPANHAMENTO</p><h1>Métricas</h1><p class="introducao">Veja quantas mensagens chegaram, quantas o robô respondeu<br class="desktop"> e onde ainda faltam respostas no período escolhido.</p></div>
+      <p id="atualizado" class="atualizado" role="status" aria-live="polite">Carregando…</p>
+    </div>
+
+    <section class="periodo" aria-label="Período">
+      <div class="chips" role="group" aria-label="Escolher período">
+        <button type="button" data-dias="7" aria-pressed="false">7 dias</button>
+        <button type="button" data-dias="30" aria-pressed="true">30 dias</button>
+        <button type="button" data-dias="90" aria-pressed="false">90 dias</button>
+        <button type="button" data-dias="personalizado" aria-pressed="false">Personalizado</button>
+      </div>
+      <div id="periodo-datas" class="periodo-datas" hidden>
+        <label>De <input type="date" id="data-de"></label>
+        <label>Até <input type="date" id="data-ate"></label>
+        <button type="button" id="aplicar-datas" class="botao botao-primario botao-pequeno">Aplicar</button>
+      </div>
+    </section>
+
+    <div id="aviso" class="feedback erro" role="alert" hidden></div>
+
+    <div id="conteudo">
+      <section id="cartoes" class="indicadores" aria-label="Resumo do período">
+        <div class="indicador-card"><span>MENSAGENS RECEBIDAS</span><strong id="total-recebidas">–</strong><small></small></div>
+        <div class="indicador-card"><span>CONTATOS</span><strong id="total-contatos">–</strong><small></small></div>
+        <div class="indicador-card"><span>RESPONDIDAS</span><strong id="total-respondidas">–</strong><small id="taxa-respondidas"></small></div>
+        <div class="indicador-card"><span>SEM RESPOSTA</span><strong id="total-sem-resposta">–</strong><small></small></div>
+      </section>
+
+      <section class="grade-graficos" aria-label="Gráficos">
+        <article id="grafico-dias" class="cartao cartao-grafico">
+          <h2>Mensagens por dia</h2>
+          <div class="legenda">
+            <span class="legenda-item"><svg class="legenda-cor" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><rect class="barra-recebidas" width="10" height="10" rx="2"></rect></svg>Recebidas</span>
+            <span class="legenda-item"><svg class="legenda-cor" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><rect class="barra-respondidas" width="10" height="10" rx="2"></rect></svg>Respondidas</span>
+          </div>
+          <div data-area></div>
+          <p class="vazio" hidden>Sem dados neste período.</p>
+        </article>
+
+        <article id="grafico-origem" class="cartao cartao-grafico">
+          <h2>Origem das respostas</h2>
+          <div data-area></div>
+          <p class="vazio" hidden>Sem dados neste período.</p>
+        </article>
+
+        <article id="grafico-intencao" class="cartao cartao-grafico">
+          <h2>Intenções mais comuns</h2>
+          <div data-area></div>
+          <p class="vazio" hidden>Sem dados neste período.</p>
+        </article>
+
+        <article id="grafico-modelo" class="cartao cartao-grafico">
+          <h2>Modelos de IA usados</h2>
+          <div data-area></div>
+          <p class="vazio" hidden>Sem dados neste período.</p>
+        </article>
+
+        <article id="bloco-ia" class="cartao cartao-grafico">
+          <h2>Inteligência artificial</h2>
+          <dl id="ia-totais">
+            <div><dt>Consultas à IA</dt><dd id="ia-consultas">–</dd></div>
+            <div><dt>Respostas enviadas</dt><dd id="ia-respostas">–</dd></div>
+          </dl>
+          <p id="ia-falhas-titulo" class="eixo-texto" hidden>Falhas por motivo</p>
+          <ul id="ia-falhas" hidden></ul>
+          <p class="vazio" hidden>Nenhuma consulta à IA neste período.</p>
+        </article>
+
+        <article id="grafico-hora" class="cartao cartao-grafico">
+          <h2>Movimento por hora</h2>
+          <p id="pico-hora" class="eixo-texto" hidden></p>
+          <div data-area></div>
+          <p class="vazio" hidden>Sem dados neste período.</p>
+        </article>
+
+        <article id="duvidas" class="cartao cartao-grafico">
+          <h2>Dúvidas frequentes</h2>
+          <div class="tabela-duvidas" hidden>
+            <table>
+              <thead><tr><th scope="col">Texto</th><th scope="col">Vezes</th></tr></thead>
+              <tbody id="duvidas-corpo"></tbody>
+            </table>
+          </div>
+          <p class="eixo-texto">Dica: crie uma opção com essas palavras na página de Configuração para o robô passar a responder.</p>
+          <p class="vazio" hidden>Nenhuma dúvida registrada neste período.</p>
+        </article>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

@@ -1185,6 +1185,321 @@ async function principal() {
     igual(todas.filter((c) => !c.chaveOk).length, 0, 'chamadas sem a chave correta');
   });
 
+  // ---------- banco de dados (Postgres), ingestão, papéis, versões e resiliência ----------
+  secao('Banco de dados (painel com Postgres)');
+  const PAINEL_BANCO = process.env.PAINEL_BANCO_URL || 'http://painel-banco:8080';
+  const PROXY_BANCO = process.env.PROXY_BANCO_URL || 'http://proxy-banco:9000';
+  const USUARIO_BANCO = process.env.PAINEL_BANCO_USUARIO || 'admin';
+  const SENHA_BANCO = process.env.PAINEL_BANCO_SENHA || 'senha-admin-teste-1';
+  const ARQUIVO_CFG_BANCO = '/config-banco/chatbot.json';
+
+  // Chamada ao painel com banco. cookie opcional; corpo vira JSON. Devolve { status, dados, headers }.
+  function pb(rota, { metodo = 'GET', corpo, cookie } = {}) {
+    return new Promise((ok, erro) => {
+      const bruto = corpo === undefined ? undefined : JSON.stringify(corpo);
+      const cabecalhos = { Host: 'localhost:8080', Accept: 'application/json' };
+      if (cookie) cabecalhos.Cookie = cookie;
+      if (bruto !== undefined) { cabecalhos['Content-Type'] = 'application/json'; cabecalhos['Content-Length'] = Buffer.byteLength(bruto); }
+      const req = http.request(PAINEL_BANCO + rota, { method: metodo, headers: cabecalhos }, (res) => {
+        let texto = '';
+        res.setEncoding('utf8');
+        res.on('data', (parte) => { texto += parte; });
+        res.on('end', () => { let dados; try { dados = JSON.parse(texto); } catch (e) { dados = undefined; } ok({ status: res.statusCode, dados, texto, headers: res.headers }); });
+      });
+      req.on('error', erro);
+      req.end(bruto);
+    });
+  }
+  const loginBanco = async (usuario, senha) => {
+    const r = await pb('/api/login', { metodo: 'POST', corpo: { usuario, senha } });
+    return { status: r.status, dados: r.dados, cookie: ((r.headers['set-cookie'] || [''])[0]).split(';')[0] };
+  };
+  const proxy = async (acao) => (await fetch(PROXY_BANCO + '/' + acao, { method: 'POST' })).json();
+
+  // Todas as mensagens do histórico (percorre as páginas).
+  async function historicoCompleto(cookie, consulta = '') {
+    const itens = [];
+    for (let pagina = 1; pagina < 400; pagina++) {
+      const r = await pb('/api/historico?pagina=' + pagina + consulta, { cookie });
+      igual(r.status, 200, 'histórico página ' + pagina);
+      itens.push(...r.dados.itens);
+      if (!r.dados.temMais) return itens;
+    }
+    throw new Error('histórico com páginas demais');
+  }
+  const linhasDeConversas = () => lerLog('conversas').filter((l) => !l.invalida && l.conversa && l.quando);
+
+  let admin;
+  await teste('banco: painel sobe com o banco, migra e o bootstrap cria o admin a partir de PAINEL_SENHA_HASH', async () => {
+    // Espera o painel migrar o banco e criar o admin (até lá o login de reserva do .env também funciona).
+    await aguardar('banco disponível no painel', async () => {
+      const entrada = await loginBanco(USUARIO_BANCO, SENHA_BANCO).catch(() => null);
+      if (!entrada || entrada.status !== 200) return false;
+      const s = await pb('/api/servidor', { cookie: entrada.cookie });
+      return s.dados && s.dados.banco === true;
+    }, 90000);
+    igual((await pb('/api/config')).status, 401, 'sem login não há acesso');
+    // Agora o login já é o do banco (sessão gravada no Postgres).
+    admin = await loginBanco(USUARIO_BANCO, SENHA_BANCO);
+    igual(admin.status, 200, 'login do admin');
+    const sessao = await pb('/api/sessao', { cookie: admin.cookie });
+    igual(sessao.dados.papel, 'admin', 'papel do admin');
+    igual(sessao.dados.loginObrigatorio, true, 'login obrigatório');
+    igual((await loginBanco(USUARIO_BANCO, 'senha-errada-123456')).status, 401, 'senha errada');
+    const usuarios = await pb('/api/usuarios', { cookie: admin.cookie });
+    igual(usuarios.status, 200, 'lista de usuários');
+    verdadeiro(usuarios.dados.usuarios.some((u) => u.usuario === 'admin' && u.papel === 'admin' && u.ativo === true), 'admin do bootstrap na lista');
+    verdadeiro(!usuarios.texto.includes('scrypt'), 'o hash da senha nunca sai na API');
+  });
+  await teste('banco: /api/servidor informa banco ligado e atraso da ingestão', async () => {
+    const s = await aguardar('atraso da ingestão calculado', async () => {
+      const r = await pb('/api/servidor', { cookie: admin.cookie });
+      return r.dados && r.dados.banco === true && Number.isInteger(r.dados.atrasoIngestaoSegundos) ? r.dados : null;
+    }, 30000);
+    verdadeiro(s.atrasoIngestaoSegundos < 30, 'a ingestão deveria estar em dia (atraso ' + s.atrasoIngestaoSegundos + ' s)');
+  });
+
+  const marcaBanco = novaMarca();
+  const conversaBanco = novaConversa();
+  await teste('banco: conversa real do bot é ingerida e aparece no histórico e na conversa inteira', async () => {
+    const m1 = await mandar({ de: conversaBanco, texto: 'oi ' + marcaBanco });
+    // Texto com a marca única (para a busca): o bot responde com uma orientação, não com o menu.
+    igual(m1.linha.resultado, 'respondida', 'o bot respondeu a primeira mensagem');
+    const m2 = await mandar({ de: conversaBanco, texto: '3' });
+    await aguardarConversa(m2.chave);
+    const itens = await aguardar('mensagens da conversa no histórico', async () => {
+      const r = await pb('/api/historico?conversa=' + encodeURIComponent(conversaBanco), { cookie: admin.cookie });
+      return r.status === 200 && r.dados.itens.length >= 2 ? r.dados.itens : null;
+    }, 30000);
+    igual(itens.length, 2, 'duas mensagens da conversa');
+    const recente = itens[0];
+    igual(recente.texto, '3', 'mais recente primeiro');
+    igual(recente.resultado, 'respondida', 'resultado');
+    igual(recente.intencao, 'local', 'intenção');
+    verdadeiro(typeof recente.resposta === 'string' && recente.resposta.length > 0, 'resposta enviada registrada');
+    for (const campo of ['id', 'quando', 'sessao', 'conversa', 'telefone', 'nome', 'texto', 'resposta', 'resultado', 'motivo', 'intencao', 'ia', 'iaModelo']) verdadeiro(campo in recente, 'campo ' + campo + ' no contrato');
+    const inteira = await pb('/api/historico/conversa/' + encodeURIComponent(conversaBanco), { cookie: admin.cookie });
+    igual(inteira.status, 200, 'conversa inteira');
+    igual(inteira.dados.itens.map((i) => i.texto).join('|'), 'oi ' + marcaBanco + '|3', 'ordem cronológica');
+  });
+  await teste('banco: nenhuma duplicação, mesmo depois de vários ciclos da ingestão', async () => {
+    await dormir(12000);
+    const noArquivo = linhasDeConversas().length;
+    const totalNoBanco = await aguardar('histórico igual aos arquivos', async () => {
+      const todos = await historicoCompleto(admin.cookie);
+      return todos.length === linhasDeConversas().length ? todos : null;
+    }, 40000);
+    igual(totalNoBanco.length, linhasDeConversas().length, 'mensagens no banco = linhas nos arquivos');
+    verdadeiro(noArquivo > 50, 'deveria haver muitas conversas');
+    igual(new Set(totalNoBanco.map((i) => i.id)).size, totalNoBanco.length, 'ids únicos');
+  });
+  await teste('banco: busca de texto e filtros de período', async () => {
+    const achou = await pb('/api/historico?busca=' + encodeURIComponent(marcaBanco), { cookie: admin.cookie });
+    igual(achou.dados.itens.length, 1, 'busca pela marca única');
+    const hoje = new Date();
+    const dia = (d) => [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')].join('-');
+    const ontem = new Date(hoje.getTime() - 86400000);
+    igual((await pb('/api/historico?busca=' + encodeURIComponent(marcaBanco) + '&de=' + dia(hoje) + '&ate=' + dia(hoje), { cookie: admin.cookie })).dados.itens.length, 1, 'período de hoje');
+    igual((await pb('/api/historico?busca=' + encodeURIComponent(marcaBanco) + '&ate=' + dia(ontem), { cookie: admin.cookie })).dados.itens.length, 0, 'período de ontem');
+    igual((await pb('/api/historico?de=2026-13-01', { cookie: admin.cookie })).status, 400, 'data inválida');
+    const p1 = await pb('/api/historico', { cookie: admin.cookie });
+    igual(p1.dados.itens.length, 50, 'página de 50');
+    igual(p1.dados.temMais, true, 'há mais páginas');
+  });
+  await teste('banco: métricas conferem com os arquivos de log', async () => {
+    const esperado = () => {
+      const recebidas = linhasDeConversas().filter((l) => l.de === 'contato');
+      const regs = lerLog('chatbot').filter((l) => !l.invalida && l.quando);
+      return {
+        recebidas: recebidas.length,
+        contatos: new Set(recebidas.map((l) => l.conversa)).size,
+        respondidas: recebidas.filter((l) => l.resultado === 'respondida').length,
+        consultasIA: regs.filter((l) => l.ia).length,
+        respostasIA: regs.filter((l) => l.ia === 'respondeu').length,
+      };
+    };
+    let e;
+    const m = await aguardar('métricas em dia com os logs', async () => {
+      e = esperado();
+      const r = await pb('/api/metricas', { cookie: admin.cookie });
+      return r.status === 200 && r.dados.totais.recebidas === e.recebidas && r.dados.ia.consultas === e.consultasIA ? r.dados : null;
+    }, 40000);
+    igual(m.totais.contatos, e.contatos, 'contatos únicos');
+    igual(m.totais.respondidas, e.respondidas, 'respondidas');
+    igual(m.totais.naoRespondidas, e.recebidas - e.respondidas, 'não respondidas');
+    igual(m.ia.respostas, e.respostasIA, 'respostas da IA');
+    verdadeiro(e.consultasIA > 0, 'os testes de IA deveriam ter gerado consultas');
+    igual(m.porHora.length, 24, 'horas do dia');
+    igual(m.porHora.reduce((a, h) => a + h.total, 0), e.recebidas, 'soma por hora');
+    igual(m.porDia.reduce((a, d) => a + d.recebidas, 0), e.recebidas, 'soma por dia');
+    verdadeiro(m.porOrigem.some((o) => o.origem === 'ia' && o.total > 0), 'origem IA presente');
+    verdadeiro(m.porOrigem.some((o) => o.origem === 'menu_regras' && o.total > 0), 'origem menu/regras presente');
+    verdadeiro(m.porIntencao.length > 0 && m.porIntencao.length <= 10, 'top 10 intenções');
+    verdadeiro(m.duvidas.length > 0 && m.duvidas.length <= 20, 'dúvidas não respondidas (até 20)');
+    verdadeiro(m.duvidas.every((d) => d.texto === d.texto.toLowerCase() && !/[^a-z0-9 ]/.test(d.texto)), 'dúvidas normalizadas (minúsculas, sem acento e sem pontuação)');
+    igual((await pb('/api/metricas?de=2026-02-30', { cookie: admin.cookie })).status, 400, 'data inexistente');
+  });
+
+  const configOriginalBanco = fs.readFileSync(ARQUIVO_CFG_BANCO, 'utf8');
+  let leitor;
+  let editor;
+  try {
+    await teste('banco: configuração atual vira a versão 1 e salvar cria nova versão com autor e comentário', async () => {
+      const v = await pb('/api/config/versoes', { cookie: admin.cookie });
+      igual(v.status, 200, 'lista de versões');
+      verdadeiro(v.dados.versoes.length >= 1, 'versão inicial importada');
+      igual(v.dados.versoes[v.dados.versoes.length - 1].autor, 'importação', 'autor da versão 1');
+      const atual = (await pb('/api/config', { cookie: admin.cookie })).dados;
+      const nova = JSON.parse(JSON.stringify(atual.config));
+      nova.evento.nome = 'Evento do teste de versões';
+      const antes = v.dados.versoes.length;
+      const salvo = await pb('/api/config', { metodo: 'PUT', cookie: admin.cookie, corpo: { config: nova, revisao: atual.revisao, comentario: 'teste de versão' } });
+      igual(salvo.status, 200, 'PUT /api/config');
+      verdadeiro(!salvo.dados.avisoVersao, 'versão registrada sem aviso');
+      const depois = (await pb('/api/config/versoes', { cookie: admin.cookie })).dados.versoes;
+      igual(depois.length, antes + 1, 'uma versão nova');
+      igual(depois[0].autor, 'admin', 'autor');
+      igual(depois[0].comentario, 'teste de versão', 'comentário');
+      igual(JSON.parse(fs.readFileSync(ARQUIVO_CFG_BANCO, 'utf8')).evento.nome, 'Evento do teste de versões', 'arquivo gravado (fonte da verdade)');
+      const conteudo = await pb('/api/config/versoes/' + depois[0].id, { cookie: admin.cookie });
+      igual(conteudo.dados.config.evento.nome, 'Evento do teste de versões', 'conteúdo da versão');
+      igual((await pb('/api/config/versoes/999999', { cookie: admin.cookie })).status, 404, 'versão inexistente');
+    });
+    await teste('banco: restaurar uma versão antiga grava o arquivo e cria "restaurada da N"', async () => {
+      const versoes = (await pb('/api/config/versoes', { cookie: admin.cookie })).dados.versoes;
+      const primeira = versoes[versoes.length - 1];
+      const atual = (await pb('/api/config', { cookie: admin.cookie })).dados;
+      igual((await pb('/api/config/versoes/' + primeira.id + '/restaurar', { metodo: 'POST', cookie: admin.cookie, corpo: { revisao: 'revisao-velha' } })).status, 409, 'revisão desatualizada é recusada');
+      const r = await pb('/api/config/versoes/' + primeira.id + '/restaurar', { metodo: 'POST', cookie: admin.cookie, corpo: { revisao: atual.revisao } });
+      igual(r.status, 200, 'restaurar');
+      verdadeiro(r.dados.config && r.dados.revisao && Array.isArray(r.dados.avisos), 'mesmo formato do PUT');
+      verdadeiro(r.dados.config.evento.nome !== 'Evento do teste de versões', 'conteúdo antigo restaurado');
+      igual(JSON.parse(fs.readFileSync(ARQUIVO_CFG_BANCO, 'utf8')).evento.nome, r.dados.config.evento.nome, 'arquivo restaurado');
+      const depois = (await pb('/api/config/versoes', { cookie: admin.cookie })).dados.versoes;
+      igual(depois[0].comentario, 'Restaurada da versão ' + primeira.id, 'nova versão da restauração');
+    });
+
+    await teste('banco: papéis barram as rotas no servidor (403) e leitor e editor funcionam', async () => {
+      const criar = (usuario, papel) => pb('/api/usuarios', { metodo: 'POST', cookie: admin.cookie, corpo: { usuario, papel, senha: 'senha-' + usuario + '-12345' } });
+      igual((await criar('leitor-teste', 'leitor')).status, 201, 'criar leitor');
+      igual((await criar('editor-teste', 'editor')).status, 201, 'criar editor');
+      igual((await criar('leitor-teste', 'leitor')).status, 409, 'nome repetido');
+      igual((await pb('/api/usuarios', { metodo: 'POST', cookie: admin.cookie, corpo: { usuario: 'curto-teste', papel: 'leitor', senha: 'curta' } })).status, 400, 'senha curta');
+      leitor = await loginBanco('leitor-teste', 'senha-leitor-teste-12345');
+      editor = await loginBanco('editor-teste', 'senha-editor-teste-12345');
+      igual(leitor.status, 200, 'login do leitor');
+      igual(editor.status, 200, 'login do editor');
+      igual((await pb('/api/sessao', { cookie: leitor.cookie })).dados.papel, 'leitor', 'papel do leitor');
+      const atual = (await pb('/api/config', { cookie: leitor.cookie })).dados;
+      const corpoPut = { config: atual.config, revisao: atual.revisao };
+      for (const [rota, opcoes] of [
+        ['/api/config', { metodo: 'PUT', corpo: corpoPut }],
+        ['/api/config/versoes/1/restaurar', { metodo: 'POST', corpo: { revisao: atual.revisao } }],
+        ['/api/whatsapp/default/iniciar', { metodo: 'POST', corpo: {} }],
+        ['/api/whatsapp/default/parar', { metodo: 'POST', corpo: {} }],
+        ['/api/whatsapp/default/desconectar', { metodo: 'POST', corpo: { confirmar: true } }],
+        ['/api/usuarios', {}],
+        ['/api/usuarios', { metodo: 'POST', corpo: { usuario: 'xx-teste', papel: 'admin', senha: 'senha-xx-12345678' } }],
+      ]) {
+        const r = await pb(rota, { cookie: leitor.cookie, ...opcoes });
+        igual(r.status, 403, 'leitor em ' + (opcoes.metodo || 'GET') + ' ' + rota);
+        verdadeiro(r.dados && typeof r.dados.erro === 'string', 'erro explicado em ' + rota);
+      }
+      for (const rota of ['/api/config', '/api/config/versoes', '/api/historico', '/api/metricas', '/api/servidor']) igual((await pb(rota, { cookie: leitor.cookie })).status, 200, 'leitor lê ' + rota);
+      igual((await pb('/api/config', { metodo: 'PUT', cookie: editor.cookie, corpo: corpoPut })).status, 200, 'editor salva a configuração');
+      igual((await pb('/api/usuarios', { cookie: editor.cookie })).status, 403, 'editor não gerencia usuários');
+      igual((await pb('/api/whatsapp/default/desconectar', { metodo: 'POST', cookie: editor.cookie, corpo: { confirmar: true } })).status, 403, 'editor não desconecta');
+      igual((await pb('/api/config', { metodo: 'PUT', corpo: corpoPut })).status, 401, 'sem login: 401');
+    });
+  } finally {
+    // O arquivo do painel com banco é só dele, mas deixa como estava.
+    fs.writeFileSync(ARQUIVO_CFG_BANCO, configOriginalBanco);
+  }
+
+  await teste('banco: usuários — não rebaixa o último admin, não se desativa e trocar a senha derruba as sessões', async () => {
+    const lista = (await pb('/api/usuarios', { cookie: admin.cookie })).dados.usuarios;
+    const euMesmo = lista.find((u) => u.usuario === 'admin');
+    const alvoEditor = lista.find((u) => u.usuario === 'editor-teste');
+    const alvoLeitor = lista.find((u) => u.usuario === 'leitor-teste');
+    igual((await pb('/api/usuarios/' + euMesmo.id, { metodo: 'PATCH', cookie: admin.cookie, corpo: { ativo: false } })).status, 409, 'não desativa a si mesmo');
+    igual((await pb('/api/usuarios/' + euMesmo.id, { metodo: 'PATCH', cookie: admin.cookie, corpo: { papel: 'leitor' } })).status, 409, 'não rebaixa o último admin');
+    igual((await pb('/api/usuarios/' + alvoLeitor.id, { metodo: 'PATCH', cookie: admin.cookie, corpo: { papel: 'chefe' } })).status, 400, 'papel inválido');
+    // troca de senha encerra a sessão do editor
+    igual((await pb('/api/sessao', { cookie: editor.cookie })).dados.logado, true, 'editor logado');
+    igual((await pb('/api/usuarios/' + alvoEditor.id + '/senha', { metodo: 'POST', cookie: admin.cookie, corpo: { senha: 'nova-senha-editor-9999' } })).status, 200, 'redefinir a senha');
+    igual((await pb('/api/sessao', { cookie: editor.cookie })).dados.logado, false, 'sessão antiga encerrada');
+    igual((await loginBanco('editor-teste', 'senha-editor-teste-12345')).status, 401, 'senha antiga não vale');
+    igual((await loginBanco('editor-teste', 'nova-senha-editor-9999')).status, 200, 'senha nova vale');
+    // desativar derruba a sessão e impede novo login
+    igual((await pb('/api/usuarios/' + alvoLeitor.id, { metodo: 'PATCH', cookie: admin.cookie, corpo: { ativo: false } })).status, 200, 'desativar');
+    igual((await pb('/api/config', { cookie: leitor.cookie })).status, 401, 'sessão do desativado encerrada');
+    igual((await loginBanco('leitor-teste', 'senha-leitor-teste-12345')).status, 401, 'desativado não entra');
+    // com dois admins, o primeiro pode ser rebaixado; o último continua protegido
+    igual((await pb('/api/usuarios/' + alvoEditor.id, { metodo: 'PATCH', cookie: admin.cookie, corpo: { papel: 'admin' } })).status, 200, 'promover a admin');
+    igual((await pb('/api/usuarios/' + alvoEditor.id, { metodo: 'PATCH', cookie: admin.cookie, corpo: { papel: 'editor' } })).status, 200, 'rebaixar quando há outro admin');
+  });
+
+  await teste('banco: com o banco parado o painel e o bot seguem funcionando e tudo volta sozinho', async () => {
+    // Mensagem antes da queda, para conferir que o histórico continua depois.
+    const durante = novaConversa();
+    const marcaDurante = novaMarca();
+    igual((await proxy('parar')).ligado, false, 'proxy desligado (banco inacessível)');
+    try {
+      await aguardar('painel perceber que o banco caiu', async () => {
+        const r = await pb('/api/servidor', { cookie: admin.cookie });
+        // a sessão do banco deixa de valer sem o banco: pode vir 401 até entrar pela reserva
+        return r.status === 401 || (r.dados && r.dados.banco === false);
+      }, 40000);
+      igual((await pb('/api/health')).status, 200, 'o painel continua de pé');
+      // Login de reserva do .env (admin em memória).
+      const reserva = await aguardar('login de reserva', async () => {
+        const r = await loginBanco(USUARIO_BANCO, SENHA_BANCO);
+        return r.status === 200 ? r : null;
+      }, 20000);
+      igual((await pb('/api/sessao', { cookie: reserva.cookie })).dados.papel, 'admin', 'papel da reserva');
+      igual((await pb('/api/servidor', { cookie: reserva.cookie })).dados.banco, false, 'banco marcado como indisponível');
+      for (const rota of ['/api/historico', '/api/metricas', '/api/config/versoes', '/api/usuarios']) {
+        const r = await pb(rota, { cookie: reserva.cookie });
+        igual(r.status, 503, rota + ' sem banco');
+        igual(r.dados.bancoIndisponivel, true, rota + ': marcador bancoIndisponivel');
+        verdadeiro(typeof r.dados.erro === 'string', rota + ': mensagem de erro');
+      }
+      // A edição da configuração continua funcionando (com aviso de que a versão não foi registrada).
+      const atual = (await pb('/api/config', { cookie: reserva.cookie })).dados;
+      const nova = JSON.parse(JSON.stringify(atual.config));
+      nova.evento.nome = 'Salvo sem banco';
+      const salvo = await pb('/api/config', { metodo: 'PUT', cookie: reserva.cookie, corpo: { config: nova, revisao: atual.revisao } });
+      igual(salvo.status, 200, 'PUT com o banco parado');
+      verdadeiro(typeof salvo.dados.avisoVersao === 'string', 'aviso de versão não registrada');
+      igual(JSON.parse(fs.readFileSync(ARQUIVO_CFG_BANCO, 'utf8')).evento.nome, 'Salvo sem banco', 'arquivo gravado mesmo assim');
+      // O bot não depende do banco: responde normalmente.
+      const m = await mandar({ de: durante, texto: 'oi ' + marcaDurante });
+      igual(m.linha.resultado, 'respondida', 'o bot respondeu com o banco parado');
+    } finally {
+      fs.writeFileSync(ARQUIVO_CFG_BANCO, configOriginalBanco);
+      igual((await proxy('ligar')).ligado, true, 'proxy religado');
+    }
+    // Volta sozinho: reconecta e ingere o que ficou pendente.
+    const novamente = await aguardar('painel reconectar ao banco', async () => {
+      const r = await loginBanco(USUARIO_BANCO, SENHA_BANCO);
+      if (r.status !== 200) return null;
+      const s = await pb('/api/servidor', { cookie: r.cookie });
+      return s.dados && s.dados.banco === true ? r : null;
+    }, 60000);
+    const itens = await aguardar('mensagem enviada durante a queda aparecer no histórico', async () => {
+      const r = await pb('/api/historico?busca=' + encodeURIComponent(marcaDurante), { cookie: novamente.cookie });
+      return r.status === 200 && r.dados.itens.length === 1 ? r.dados.itens : null;
+    }, 40000);
+    igual(itens[0].conversa, durante, 'a conversa ingerida depois da volta');
+    igual((await pb('/api/usuarios', { cookie: novamente.cookie })).status, 200, 'usuários do banco voltam a valer');
+    // o histórico continua sem duplicar depois de queda e volta
+    const todos = await aguardar('histórico igual aos arquivos após a volta', async () => {
+      const lista = await historicoCompleto(novamente.cookie);
+      return lista.length === linhasDeConversas().length ? lista : null;
+    }, 40000);
+    igual(todos.length, linhasDeConversas().length, 'sem duplicação após a volta do banco');
+  });
+
   // ---------- resumo ----------
   const falhas = resultados.filter((r) => !r.ok);
   console.log('\n' + '-'.repeat(60));

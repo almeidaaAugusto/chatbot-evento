@@ -432,6 +432,180 @@ function desenhar(forcar = false) {
   desenharErros();
 }
 
+// ---------- histórico do banco ----------
+// Quando o banco está no ar, a página mostra o histórico completo (busca, período, paginação).
+// Sem banco, continua no modo "ao vivo", lendo os arquivos recentes.
+
+const hist = { ativo: false, disponivel: false, pagina: 0, temMais: false, carregando: false, selecionada: null };
+
+async function apiBanco(rota) {
+  let resposta;
+  try { resposta = await fetch(rota, { headers: { Accept: 'application/json' } }); }
+  catch { const e = new Error('Não foi possível conectar ao painel.'); e.banco = false; throw e; }
+  if (resposta.status === 401) { location.href = '/login'; throw new Error('Sessão expirada. Entre novamente.'); }
+  let dados = {};
+  try { dados = await resposta.json(); } catch { dados = {}; }
+  if (!resposta.ok) {
+    const e = new Error(dados.erro || 'O painel não respondeu (HTTP ' + resposta.status + ').');
+    e.banco = resposta.status === 503 && dados.bancoIndisponivel === true;
+    throw e;
+  }
+  return dados;
+}
+
+const dataHora = (iso) => {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+};
+const diaLocal = (iso) => {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' });
+};
+
+function consultaHistorico(pagina) {
+  const p = new URLSearchParams();
+  if ($('#h-de').value) p.set('de', $('#h-de').value);
+  if ($('#h-ate').value) p.set('ate', $('#h-ate').value);
+  if ($('#h-busca').value.trim()) p.set('busca', $('#h-busca').value.trim());
+  p.set('pagina', String(pagina));
+  return '/api/historico?' + p.toString();
+}
+
+function itemDoHistorico(m) {
+  const { nome } = identificacao({ nome: m.nome, telefone: m.telefone, conversa: m.conversa || '' });
+  const li = elemento('li');
+  const botao = elemento('button', 'contato' + (hist.selecionada === m.conversa ? ' ativo' : ''));
+  botao.type = 'button';
+  botao.dataset.conversa = m.conversa || '';
+  botao.dataset.nome = m.nome || '';
+  botao.dataset.telefone = m.telefone || '';
+  botao.dataset.sessao = m.sessao || '';
+  const linha1 = elemento('span', 'contato-linha');
+  linha1.append(elemento('strong', 'contato-nome', nome));
+  if (m.sessao) linha1.append(elemento('small', 'contato-numero', nomeDoNumero(m.sessao)));
+  linha1.append(elemento('time', 'contato-hora', dataHora(m.quando)));
+  const linha2 = elemento('span', 'contato-previa', (m.texto || '(sem texto)').replace(/\s+/g, ' ').slice(0, 120));
+  botao.append(linha1, linha2);
+  if (m.resposta) botao.append(elemento('span', 'contato-previa contato-resposta', 'Robô: ' + String(m.resposta).replace(/\s+/g, ' ').slice(0, 120)));
+  const marcas = elemento('span', 'marcas');
+  if (m.resultado && m.resultado !== 'respondida') marcas.append(elemento('span', 'marca-estado alerta', 'sem resposta'));
+  if (m.ia === 'respondeu') marcas.append(elemento('span', 'marca-estado ia', 'IA'));
+  if (marcas.childElementCount) botao.append(marcas);
+  li.append(botao);
+  return li;
+}
+
+async function buscarHistorico(reiniciar) {
+  if (hist.carregando) return;
+  hist.carregando = true;
+  const proxima = reiniciar ? 1 : hist.pagina + 1;
+  try {
+    const dados = await apiBanco(consultaHistorico(proxima));
+    const itens = Array.isArray(dados.itens) ? dados.itens : [];
+    const lista = $('#h-lista');
+    if (reiniciar) lista.replaceChildren();
+    for (const m of itens) lista.append(itemDoHistorico(m));
+    hist.pagina = Number(dados.pagina) || proxima;
+    hist.temMais = Boolean(dados.temMais);
+    $('#h-mais').hidden = !hist.temMais;
+    $('#h-vazio').hidden = lista.childElementCount > 0;
+    $('#h-aviso').hidden = true;
+    hist.disponivel = true;
+  } catch (erro) {
+    if (!hist.disponivel) throw erro;
+    $('#h-aviso').textContent = erro.banco ? 'Histórico indisponível: banco de dados fora do ar. Tente de novo em instantes ou use o modo ao vivo.' : erro.message;
+    $('#h-aviso').hidden = false;
+  } finally {
+    hist.carregando = false;
+  }
+}
+
+function desenharConversaHistorico(itens, referencia) {
+  const area = $('#h-mensagens');
+  const { nome, detalhe } = identificacao({ nome: referencia.nome, telefone: referencia.telefone, conversa: referencia.conversa || '' });
+  $('#h-nome').textContent = nome;
+  $('#h-numero').textContent = [detalhe || 'Conversa no WhatsApp', referencia.sessao ? 'pelo número ' + nomeDoNumero(referencia.sessao) : '', plural(itens.length, 'registro', 'registros')].filter(Boolean).join(' · ');
+  $('#h-avatar').textContent = (nome.match(/[A-Za-zÀ-ÿ0-9]/) || ['✳'])[0].toUpperCase();
+  const nodos = [];
+  let anterior = '';
+  for (const r of itens) {
+    const dia = diaLocal(r.quando);
+    if (dia !== anterior) { nodos.push(elemento('div', 'separador-dia', dia)); anterior = dia; }
+    if (r.resultado === 'robo_pausado' || r.resultado === 'robo_reativado') {
+      if (r.texto) nodos.push(balao('equipe', r.texto, 'Equipe · pelo celular', r.quando));
+      nodos.push(nota(r.resultado === 'robo_pausado' ? 'Robô pausado para este contato.' : 'Robô reativado para este contato.'));
+      continue;
+    }
+    nodos.push(balao('recebida', r.texto || '(mensagem vazia)', '', r.quando));
+    if (r.resultado === 'respondida') {
+      const deIA = r.ia === 'respondeu';
+      nodos.push(balao(deIA ? 'robo de-ia' : 'robo', r.resposta || '(resposta não registrada)', deIA ? 'Robô · resposta da IA' : 'Robô · ' + (assunto(r.intencao) || 'resposta'), r.quando));
+    } else if (r.resultado === 'falha_no_envio') {
+      nodos.push(balao('robo falhou', r.resposta || '', 'Não entregue · falha ao enviar pelo WhatsApp', r.quando));
+    } else {
+      nodos.push(nota('Sem resposta: ' + (motivos[r.motivo] || r.motivo || 'motivo não informado') + '.', r.motivo === 'agrupada_com_mensagem_seguinte' ? 'discreta' : 'alerta'));
+    }
+  }
+  area.replaceChildren(...nodos);
+  area.scrollTop = area.scrollHeight;
+}
+
+async function abrirConversaHistorico(referencia) {
+  if (!referencia.conversa) return;
+  hist.selecionada = referencia.conversa;
+  $('#historico-banco').classList.add('mostrando-conversa');
+  $('#h-mensagens').replaceChildren(nota('Carregando a conversa…'));
+  try {
+    const dados = await apiBanco('/api/historico/conversa/' + encodeURIComponent(referencia.conversa));
+    desenharConversaHistorico(Array.isArray(dados.itens) ? dados.itens : [], referencia);
+  } catch (erro) {
+    $('#h-mensagens').replaceChildren(nota(erro.banco ? 'Histórico indisponível: banco de dados fora do ar.' : erro.message, 'alerta'));
+  }
+  if (window.matchMedia('(max-width: 760px)').matches) $('#historico-banco').scrollIntoView({ block: 'start' });
+}
+
+function definirModo(modo) {
+  hist.ativo = modo === 'historico';
+  $('#historico-banco').hidden = !hist.ativo;
+  $('#conversas').hidden = hist.ativo;
+  for (const b of document.querySelectorAll('#seletor-modo button')) b.setAttribute('aria-pressed', String(b.dataset.modo === modo));
+}
+
+async function iniciarHistorico() {
+  // Últimos 30 dias por padrão.
+  const hojeLocal = new Date();
+  const inicio = new Date(); inicio.setDate(inicio.getDate() - 29);
+  const fmt = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  $('#h-de').value = fmt(inicio);
+  $('#h-ate').value = fmt(hojeLocal);
+
+  $('#h-filtros').addEventListener('submit', (evento) => { evento.preventDefault(); $('#historico-banco').classList.remove('mostrando-conversa'); buscarHistorico(true); });
+  $('#h-mais').addEventListener('click', () => buscarHistorico(false));
+  $('#h-voltar').addEventListener('click', () => $('#historico-banco').classList.remove('mostrando-conversa'));
+  $('#h-lista').addEventListener('click', (evento) => {
+    const botao = evento.target.closest('button[data-conversa]');
+    if (!botao) return;
+    const nodo = botao.querySelector('.contato-nome');
+    const sessao = botao.querySelector('.contato-numero');
+    for (const outro of $('#h-lista').querySelectorAll('button.ativo')) outro.classList.remove('ativo');
+    botao.classList.add('ativo');
+    abrirConversaHistorico({ conversa: botao.dataset.conversa, nome: botao.dataset.nome || '', telefone: botao.dataset.telefone || '', sessao: botao.dataset.sessao || '', rotulo: nodo ? nodo.textContent : '' });
+  });
+  for (const b of document.querySelectorAll('#seletor-modo button')) b.addEventListener('click', () => definirModo(b.dataset.modo));
+
+  try {
+    await buscarHistorico(true);
+    $('#seletor-modo').hidden = false;
+    definirModo('historico');
+  } catch (erro) {
+    // Sem banco (ou rota ausente): fica no modo atual, por arquivo.
+    if (erro.banco) {
+      $('#h-aviso').textContent = 'Histórico completo indisponível: banco de dados fora do ar. Mostrando as conversas recentes lidas dos arquivos.';
+      $('#h-aviso').hidden = false;
+    }
+  }
+}
+
 // ---------- atualização ----------
 
 async function atualizar() {
@@ -515,6 +689,7 @@ function iniciar() {
 }
 
 iniciar();
+iniciarHistorico();
 
 // Mostra o botão "Sair" quando o login é obrigatório e trata o logout.
 async function prepararSair() {
@@ -523,6 +698,9 @@ async function prepararSair() {
   try {
     const r = await fetch('/api/sessao', { headers: { Accept: 'application/json' } });
     const s = await r.json();
+    const admin = s.papel === 'admin' || ((s.papel === null || s.papel === undefined) && !s.loginObrigatorio);
+    const aba = document.getElementById('aba-usuarios');
+    if (aba) aba.hidden = !admin;
     if (!s.loginObrigatorio) return;
     botao.hidden = false;
     botao.addEventListener('click', async () => {

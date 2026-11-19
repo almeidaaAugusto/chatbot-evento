@@ -5,7 +5,8 @@
 #   -Configurar -Servidor <ip>   Cria deploy\vps.local.json (ignorado pelo git) e testa o SSH.
 #                                (Opcionais: -Usuario ubuntu, -Chave ~/.ssh/oracle_chatbot, -Pasta chatbot-evento)
 #   -Instalar                    Envia e roda deploy\preparar-servidor.sh no servidor (uma vez).
-#   -Enviar [-SobrescreverEnv]   Envia o ultimo commit (git archive HEAD) e sobe os conteineres.
+#   -Enviar [-SobrescreverEnv]   Envia o ultimo commit (git archive HEAD), reconstroi a imagem do painel e sobe os conteineres.
+#                                Acrescenta POSTGRES_SENHA ao .env do servidor se faltar (nunca troca uma existente).
 #                                Nunca sobrescreve config\chatbot.json do servidor se ele ja existir.
 #                                O .env so vai se nao existir no servidor (ou com -SobrescreverEnv).
 #   -Tunel                       Abre o tunel SSH (painel, WAHA, n8n) e fica aberto ate Ctrl+C.
@@ -52,7 +53,7 @@ $imagemArm = 'gows-arm-2026.10.1'
 
 $acoes = @($Configurar, $Instalar, $Enviar, $Tunel, [bool]$Script, $Status, $Parar, $BaixarConfig, $Backup, $SenhaPainel, $Online, $OnlineDesligar) | Where-Object { $_ }
 if ($acoes.Count -ne 1) {
-    Get-Content -LiteralPath $PSCommandPath -TotalCount 25 | ForEach-Object { Write-Host ($_ -replace '^# ?', '') }
+    Get-Content -LiteralPath $PSCommandPath -TotalCount 27 | ForEach-Object { Write-Host ($_ -replace '^# ?', '') }
     Write-Host ''
     Write-Host 'Escolha exatamente uma acao.'
     exit 1
@@ -190,7 +191,7 @@ if ($Enviar) {
         $configOnline = [ordered]@{}
         if ($temEnv) {
             $atual = Read-DotEnv -Servidor
-            foreach ($k in @('PAINEL_DOMINIO', 'PAINEL_USUARIO', 'PAINEL_SENHA_HASH', 'PAINEL_CONFIAR_PROXY', 'COMPOSE_PROFILES')) {
+            foreach ($k in @('PAINEL_DOMINIO', 'PAINEL_USUARIO', 'PAINEL_SENHA_HASH', 'PAINEL_CONFIAR_PROXY', 'COMPOSE_PROFILES', 'POSTGRES_SENHA')) {
                 if ($atual[$k]) { $configOnline[$k] = $atual[$k] }
             }
         }
@@ -208,14 +209,33 @@ if ($Enviar) {
     }
     $script:EnvVps = $null
 
+    # Senha do banco: so acrescenta se faltar. Nunca troca uma existente (o volume postgres_data ja foi
+    # inicializado com ela). Tem de estar no .env ANTES do compose subir.
+    $envAtual = Read-DotEnv -Servidor
+    if (-not $envAtual['POSTGRES_SENHA']) {
+        $alfabeto = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+        $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+        $buf = New-Object byte[] 1
+        $senhaBanco = ''
+        try {
+            while ($senhaBanco.Length -lt 32) {
+                $rng.GetBytes($buf)
+                if ($buf[0] -lt 248) { $senhaBanco += $alfabeto[$buf[0] % 62] }
+            }
+        } finally { $rng.Dispose() }
+        Set-EnvVps ([ordered]@{ POSTGRES_SENHA = $senhaBanco })
+        $senhaBanco = $null
+        Write-Host 'POSTGRES_SENHA gerada e gravada no .env do servidor (o banco novo usa esta senha).'
+    }
+
     # Prepara o servidor: imagem ARM do WAHA no .env e pasta config gravavel pelo painel (usuario 1000 do conteiner).
     $prep = "if ! grep -q '^WAHA_IMAGEM=' .env; then [ -z `"`$(tail -c1 .env)`" ] || echo >> .env; echo 'WAHA_IMAGEM=$imagemArm' >> .env; echo 'Linha WAHA_IMAGEM=$imagemArm adicionada ao .env do servidor.'; fi; " +
             "chmod 600 .env; sudo -n chown -R 1000:1000 config && chmod 755 config && chmod 644 config/chatbot.json 2>/dev/null; true"
     Invoke-Externo { Invoke-NaPasta $prep } -Completo | Out-Host
 
-    Write-Host 'Subindo os conteineres (a primeira vez baixa as imagens e demora)...'
-    Invoke-Externo { Invoke-NaPasta 'docker compose up -d' } -Completo | Out-Host
-    if ($LASTEXITCODE -ne 0) { throw 'docker compose up -d falhou no servidor.' }
+    Write-Host 'Construindo a imagem do painel e subindo os conteineres (a primeira vez baixa as imagens e demora)...'
+    Invoke-Externo { Invoke-NaPasta 'docker compose up -d --build' } -Completo | Out-Host
+    if ($LASTEXITCODE -ne 0) { throw 'docker compose up -d --build falhou no servidor.' }
     Invoke-Externo { Invoke-NaPasta 'docker compose ps' } -Completo | Out-Host
     exit 0
 }
@@ -251,7 +271,17 @@ if ($SenhaPainel) {
     $hash = (@($saida | ForEach-Object { "$_".Trim() } | Where-Object { $_ }) | Select-Object -Last 1)
     if (-not $hash -or $hash -notmatch '^[A-Za-z0-9._:+/=-]+$') { throw 'O servidor devolveu um hash em formato inesperado. Nada foi gravado.' }
     Set-EnvVps ([ordered]@{ PAINEL_USUARIO = $usuarioPainel; PAINEL_SENHA_HASH = $hash })
-    Write-Host 'Usuario e hash gravados no .env do servidor. Reiniciando o painel...'
+    Write-Host 'Usuario e hash gravados no .env do servidor.'
+    # Se o usuario ja existe no banco, a senha de la tambem muda (o hash vai pelo stdin).
+    # Codigos do usuario.js: 0 atualizado, 3 usuario nao existe no banco, 2 banco fora do ar.
+    $cmdBanco = 'docker compose exec -T painel node usuario.js definir-hash ' + (ConvertTo-BashArg $usuarioPainel)
+    Invoke-Externo { $hash | Invoke-VpsSsh ('cd ' + (ConvertTo-BashArg $c.Pasta) + ' && ' + $cmdBanco) } -Silencioso
+    switch ($LASTEXITCODE) {
+        0 { Write-Host 'Senha atualizada tambem no banco (sessoes antigas desse usuario encerradas).' }
+        3 { Write-Host 'Usuario nao existe no banco. Se o banco ainda nao tiver usuarios, ele sera criado como admin com esta senha; senao, crie-o na pagina Usuarios do painel.' }
+        default { Write-Host 'AVISO: nao foi possivel atualizar a senha no banco (fora do ar?). Vale a senha nova so quando o banco estiver fora; rode -SenhaPainel de novo depois.' -ForegroundColor Yellow }
+    }
+    Write-Host 'Reiniciando o painel...'
     Invoke-Externo { Invoke-NaPasta 'docker compose up -d --force-recreate --no-deps painel' } -Completo | Out-Host
     if ($LASTEXITCODE -ne 0) { throw 'Nao foi possivel reiniciar o painel no servidor.' }
     Write-Host "Pronto. Usuario do painel: $usuarioPainel. A senha nao fica guardada em nenhum arquivo (so o hash)."
@@ -394,6 +424,22 @@ if ($Backup) {
     if ($LASTEXITCODE -ne 0) { Invoke-Externo { Invoke-NaPasta 'rm -f .backup-waha.tar.gz' } -Silencioso; throw 'Falha ao compactar o volume do WhatsApp no servidor.' }
     Copy-DaVps "$($c.Pasta)/.backup-waha.tar.gz" (Join-Path $destino 'waha_sessions.tar.gz')
     Invoke-Externo { Invoke-NaPasta 'rm -f .backup-waha.tar.gz' } -Silencioso
-    Write-Host 'Backup pronto (o .env foi salvo como env.txt). Guarde esta pasta em local seguro: ela tem segredos e o pareamento do WhatsApp.'
+    # Banco: dump mais recente gerado pelo servico backup-banco (volume backups_banco); se nao houver, gera um agora.
+    $bash = "docker run --rm -v chatbot-evento_backups_banco:/b:ro postgres:17-alpine sh -c 'ls -1t /b/chatbot-*.dump 2>/dev/null | head -n 1 | xargs -r cat' > .backup-banco.dump"
+    Invoke-Externo { Invoke-NaPasta $bash } -Completo | Out-Host
+    $temDump = Test-NaPasta 'test -s .backup-banco.dump'
+    if (-not $temDump) {
+        Write-Host 'Nenhum dump automatico encontrado; gerando um agora...'
+        Invoke-Externo { Invoke-NaPasta 'docker compose exec -T postgres pg_dump -Fc -U chatbot chatbot > .backup-banco.dump' } -Completo | Out-Host
+        $temDump = ($LASTEXITCODE -eq 0) -and (Test-NaPasta 'test -s .backup-banco.dump')
+    }
+    if ($temDump) {
+        Copy-DaVps "$($c.Pasta)/.backup-banco.dump" (Join-Path $destino 'chatbot.dump')
+        Write-Host 'Dump do banco salvo como chatbot.dump.'
+    } else {
+        Write-Host 'AVISO: nao foi possivel obter o dump do banco (o postgres esta no ar? veja -Status). O resto do backup foi feito.'
+    }
+    Invoke-Externo { Invoke-NaPasta 'rm -f .backup-banco.dump' } -Silencioso
+    Write-Host 'Backup pronto (o .env foi salvo como env.txt). Guarde esta pasta em local seguro: ela tem segredos, o pareamento do WhatsApp e o banco.'
     exit 0
 }

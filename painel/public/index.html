@@ -12,7 +12,7 @@
   <a class="pular" href="#editor">Pular para o conteúdo</a>
   <header class="cabecalho">
     <a class="marca" href="/" aria-label="Central do evento, início"><span class="marca-icone" aria-hidden="true">C</span><span>central<span class="marca-leve">doevento</span></span></a>
-    <nav class="abas" aria-label="Páginas do painel"><a href="/" aria-current="page">Respostas</a><a href="/conversas">Conversas</a><a href="/whatsapp">WhatsApp</a></nav>
+    <nav class="abas" aria-label="Páginas do painel"><a href="/" aria-current="page">Configuração</a><a href="/conversas">Conversas</a><a href="/metricas">Métricas</a><a href="/whatsapp">WhatsApp</a><a href="/usuarios" id="aba-usuarios" hidden>Usuários</a></nav>
     <span class="status-local"><span aria-hidden="true"></span>Painel</span>
     <button type="button" id="botao-sair" class="botao botao-secundario botao-pequeno" hidden>Sair</button>
   </header>
@@ -25,7 +25,7 @@
     <div id="avisos" class="avisos" hidden></div>
     <div class="area-trabalho">
       <div class="coluna-editor">
-        <nav class="navegacao" aria-label="Seções do editor"><a href="#dados">Evento</a><a href="#mensagens">Menu</a><a href="#opcoes">Respostas</a><a href="#fallback">Quando não entender</a><a href="#ia">IA</a></nav>
+        <nav class="navegacao" aria-label="Seções do editor"><a href="#dados">Evento</a><a href="#mensagens">Menu</a><a href="#opcoes">Respostas</a><a href="#fallback">Quando não entender</a><a href="#ia">IA</a><a href="#versoes">Versões</a></nav>
         <div id="seletor-evento" class="seletor-evento" hidden>
           <label class="campo-seletor" for="evento-atual"><span>Editando</span><select id="evento-atual" disabled></select></label>
           <span id="selo-status" class="selo-status" hidden></span>
@@ -85,6 +85,13 @@
             <div id="campos-ia"></div>
           </fieldset>
         </form>
+        <section id="versoes" class="cartao" aria-labelledby="titulo-versoes">
+          <h2 id="titulo-versoes">Histórico de versões</h2>
+          <p class="descricao">Cada vez que a configuração é salva, uma versão fica guardada com o autor e o momento. Restaurar uma versão antiga cria uma nova versão, sem apagar as demais.</p>
+          <p id="aviso-versoes" class="feedback erro" role="status" hidden></p>
+          <ul id="lista-versoes" class="lista-versoes"></ul>
+          <p id="vazio-versoes" class="vazio" hidden>Nenhuma versão guardada ainda.</p>
+        </section>
       </div>
       <aside class="simulador" aria-labelledby="titulo-simulador">
         <div class="simulador-titulo"><div><span class="sobretitulo">PRÉVIA DA CONVERSA</span><h2 id="titulo-simulador">Teste do seu jeito</h2></div><span class="selo">SIMULAÇÃO</span></div>
@@ -107,10 +114,12 @@
       </aside>
     </div>
   </main>
-  <footer class="barra-salvar"><div class="barra-conteudo"><div class="situacao"><span id="indicador-salvo" class="indicador" aria-hidden="true"></span><div><strong id="situacao-titulo">Carregando configuração…</strong><small id="situacao-detalhe">Suas alterações só entram em uso depois de salvar.</small></div></div><div class="acoes-salvar"><button id="recarregar" class="botao botao-discreto" type="button">Recarregar</button><button id="salvar" class="botao botao-primario" type="submit" form="editor" disabled>Salvar alterações <span aria-hidden="true">↗</span></button></div></div></footer>
+  <footer class="barra-salvar"><div class="barra-conteudo"><div class="situacao"><span id="indicador-salvo" class="indicador" aria-hidden="true"></span><div><strong id="situacao-titulo">Carregando configuração…</strong><small id="situacao-detalhe">Suas alterações só entram em uso depois de salvar.</small></div></div><label class="campo-comentario" for="comentario-salvar"><span class="somente-leitor">Comentário sobre esta alteração</span><input id="comentario-salvar" maxlength="200" placeholder="Comentário opcional (fica no histórico)" autocomplete="off"></label><div class="acoes-salvar"><button id="recarregar" class="botao botao-discreto" type="button">Recarregar</button><button id="salvar" class="botao botao-primario" type="submit" form="editor" disabled>Salvar alterações <span aria-hidden="true">↗</span></button></div></div></footer>
   <dialog id="confirmar-descarte"><form method="dialog"><h2>Descartar suas alterações?</h2><p>Os ajustes que ainda não foram salvos serão perdidos.</p><div class="acoes-dialogo"><button class="botao botao-secundario" value="cancelar">Continuar editando</button><button class="botao botao-primario" value="descartar">Descartar e recarregar</button></div></form></dialog>
   <dialog id="dialogo-novo"><form method="dialog"><h2>Novo evento</h2><p>O novo evento nasce como rascunho: só aparece no simulador até você ativá-lo.</p><label class="campo"><span>Nome do evento</span><input id="nome-novo" maxlength="120" autocomplete="off"></label><p id="id-novo" class="descricao"></p><div class="acoes-dialogo"><button class="botao botao-secundario" value="cancelar" formnovalidate>Cancelar</button><button id="criar-evento" class="botao botao-primario" value="criar">Criar rascunho</button></div></form></dialog>
   <dialog id="dialogo-remover"><form method="dialog"><h2>Remover evento?</h2><p id="texto-remover"></p><div class="acoes-dialogo"><button class="botao botao-secundario" value="cancelar">Cancelar</button><button class="botao botao-primario" value="remover">Remover</button></div></form></dialog>
   <dialog id="dialogo-converter"><form method="dialog"><h2>Converter para vários eventos</h2><p>O evento atual vira o primeiro da lista, como <strong>ativo</strong>. Os dados de contato ficam na produtora. Você ainda pode revisar tudo antes de salvar.</p><label class="campo"><span>Nome da produtora</span><input id="nome-produtora" maxlength="120" autocomplete="off"></label><div class="acoes-dialogo"><button class="botao botao-secundario" value="cancelar">Cancelar</button><button class="botao botao-primario" value="converter">Converter</button></div></form></dialog>
+  <dialog id="dialogo-versao" aria-labelledby="titulo-dialogo-versao"><form method="dialog"><h2 id="titulo-dialogo-versao">Versão</h2><p id="texto-versao" class="descricao"></p><pre id="conteudo-versao" class="conteudo-versao" tabindex="0"></pre><div class="acoes-dialogo"><button class="botao botao-secundario" value="fechar">Fechar</button></div></form></dialog>
+  <dialog id="dialogo-restaurar" aria-labelledby="titulo-restaurar"><form method="dialog"><h2 id="titulo-restaurar">Restaurar esta versão?</h2><p id="texto-restaurar"></p><div class="acoes-dialogo"><button class="botao botao-secundario" value="cancelar">Cancelar</button><button class="botao botao-primario" value="restaurar">Restaurar</button></div></form></dialog>
 </body>
 </html>

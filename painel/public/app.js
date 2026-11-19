@@ -9,6 +9,7 @@ let salvando = false;
 let simulando = false;
 let sequenciaCampo = 0;
 let usosIA = 0;
+let papelEfetivo = 'admin'; // ajustado por /api/sessao; o servidor também confere
 let selecionado = 'produtora'; // v2: índice do evento em edição ou 'produtora'
 const idsNovos = new Set(); // eventos criados nesta sessão (o id ainda pode mudar)
 const nomesStatus = { ativo: 'Ativo', rascunho: 'Rascunho', encerrado: 'Encerrado' };
@@ -49,7 +50,7 @@ function atualizarSituacao() {
   $('#situacao-titulo').textContent = salvando ? 'Salvando suas alterações…' : pendente ? 'Você tem alterações não salvas' : config ? 'Tudo salvo por aqui' : 'A configuração ainda não foi carregada';
   $('#situacao-detalhe').textContent = pendente ? 'Salve para usar o novo conteúdo no atendimento.' : 'Você pode testar novas ideias na prévia ao lado.';
   $('#indicador-salvo').classList.toggle('pendente', Boolean(pendente));
-  $('#salvar').disabled = !config || !pendente || salvando;
+  $('#salvar').disabled = !config || !pendente || salvando || papelEfetivo === 'leitor';
   $('#recarregar').disabled = salvando;
   if (config) {
     const dados = multi() ? (eventoAtual()?.evento || {}) : (config.evento || {});
@@ -420,7 +421,7 @@ async function carregar() {
     const primeiroAtivo = multi() ? config.eventos.findIndex(ev => ev.status === 'ativo') : -1;
     selecionado = primeiroAtivo >= 0 ? primeiroAtivo : 'produtora';
     $('#simular-como').value = '';
-    renderizar(); avisos(dados.avisos); feedback(''); reiniciarConversa(); statusIA();
+    renderizar(); avisos(dados.avisos); feedback(''); reiniciarConversa(); statusIA(); carregarVersoes();
   } catch (erro) { feedback(erro.message, true, erro.detalhes); atualizarSituacao(); }
   finally { $('#recarregar').disabled = false; }
 }
@@ -470,11 +471,15 @@ $('#editor').addEventListener('submit', async evento => {
   salvando = true; atualizarSituacao();
   const enviada = structuredClone(config);
   try {
-    const dados = await api('/api/config', 'PUT', { config: enviada, revisao });
+    const comentario = $('#comentario-salvar').value.trim();
+    const dados = await api('/api/config', 'PUT', comentario ? { config: enviada, revisao, comentario } : { config: enviada, revisao });
+    $('#comentario-salvar').value = '';
     revisao = dados.revisao;
     inicial = JSON.stringify(dados.config);
     avisos(dados.avisos);
-    feedback('Alterações salvas. O novo conteúdo será usado na próxima mensagem recebida.');
+    // O arquivo foi salvo; avisoVersao indica que só o registro no histórico (banco) falhou.
+    feedback('Alterações salvas. O novo conteúdo será usado na próxima mensagem recebida.' + (dados.avisoVersao ? ' Atenção: ' + dados.avisoVersao : ''), Boolean(dados.avisoVersao));
+    carregarVersoes();
   } catch (erro) { feedback(erro.message, true, erro.detalhes); $('#feedback').scrollIntoView({ block: 'center' }); }
   finally { salvando = false; atualizarSituacao(); }
 });
@@ -601,6 +606,110 @@ $('#reiniciar-conversa').addEventListener('click', reiniciarConversa);
 window.addEventListener('beforeunload', evento => { if (alterado()) { evento.preventDefault(); evento.returnValue = ''; } });
 carregar();
 
+// ---------- papéis ----------
+
+// Leitor só visualiza: o servidor recusa a gravação, aqui apenas evitamos o botão inútil.
+function aplicarPapel() {
+  const leitor = papelEfetivo === 'leitor';
+  $('#comentario-salvar').hidden = leitor;
+  $('#comentario-salvar').closest('.campo-comentario').hidden = leitor;
+  if (leitor) $('#situacao-detalhe').textContent = 'Seu acesso é só de leitura: não é possível salvar alterações.';
+  atualizarSituacao();
+  desenharVersoes();
+}
+const podeRestaurar = () => papelEfetivo === 'admin' || papelEfetivo === 'editor';
+
+// ---------- histórico de versões ----------
+
+let versoes = [];
+
+function quandoTexto(iso) {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? String(iso || '') : d.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+}
+
+function avisoVersoes(texto) {
+  const caixa = $('#aviso-versoes');
+  caixa.textContent = texto || '';
+  caixa.hidden = !texto;
+}
+
+async function chamarVersoes(rota, metodo, corpo) {
+  try { return await api(rota, metodo, corpo); }
+  catch (erro) {
+    if (erro.status === 503) erro.message = 'Histórico de versões indisponível: banco de dados fora do ar. Você pode continuar editando e salvando normalmente.';
+    throw erro;
+  }
+}
+
+function desenharVersoes() {
+  const lista = $('#lista-versoes');
+  lista.replaceChildren();
+  $('#vazio-versoes').hidden = versoes.length > 0 || !$('#aviso-versoes').hidden;
+  versoes.forEach((v, i) => {
+    const item = document.createElement('li');
+    item.className = 'versao';
+    const info = document.createElement('div');
+    info.className = 'versao-info';
+    const titulo = document.createElement('strong');
+    titulo.textContent = 'Versão ' + v.id + (i === 0 ? ' · mais recente' : '');
+    const detalhe = document.createElement('small');
+    detalhe.textContent = quandoTexto(v.criadoEm) + ' · ' + (v.autor || 'autor desconhecido');
+    info.append(titulo, detalhe);
+    if (v.comentario) { const c = document.createElement('span'); c.className = 'versao-comentario'; c.textContent = v.comentario; info.append(c); }
+    const acoes = document.createElement('div');
+    acoes.className = 'versao-acoes';
+    const ver = document.createElement('button');
+    ver.type = 'button'; ver.className = 'botao botao-secundario botao-pequeno'; ver.textContent = 'Ver';
+    ver.addEventListener('click', () => verVersao(v));
+    acoes.append(ver);
+    if (podeRestaurar() && i > 0) {
+      const rest = document.createElement('button');
+      rest.type = 'button'; rest.className = 'botao botao-secundario botao-pequeno'; rest.textContent = 'Restaurar';
+      rest.addEventListener('click', () => restaurarVersao(v));
+      acoes.append(rest);
+    }
+    item.append(info, acoes);
+    lista.append(item);
+  });
+}
+
+async function carregarVersoes() {
+  try {
+    const dados = await chamarVersoes('/api/config/versoes');
+    versoes = Array.isArray(dados.versoes) ? dados.versoes : [];
+    avisoVersoes('');
+  } catch (erro) { versoes = []; avisoVersoes(erro.message); }
+  desenharVersoes();
+}
+
+async function verVersao(v) {
+  try {
+    const dados = await chamarVersoes('/api/config/versoes/' + encodeURIComponent(v.id));
+    $('#titulo-dialogo-versao').textContent = 'Versão ' + dados.id;
+    $('#texto-versao').textContent = quandoTexto(dados.criadoEm) + ' · ' + (dados.autor || 'autor desconhecido') + (dados.comentario ? ' · ' + dados.comentario : '');
+    $('#conteudo-versao').textContent = JSON.stringify(dados.config, null, 2);
+    abrirDialogo($('#dialogo-versao'), () => {});
+  } catch (erro) { avisoVersoes(erro.message); desenharVersoes(); }
+}
+
+function restaurarVersao(v) {
+  $('#texto-restaurar').textContent = 'A configuração em uso será substituída pela versão ' + v.id + ' (' + quandoTexto(v.criadoEm) + ', ' + (v.autor || 'autor desconhecido') + '). A versão atual continua guardada no histórico.' + (alterado() ? ' Atenção: as alterações que você ainda não salvou serão perdidas.' : '');
+  abrirDialogo($('#dialogo-restaurar'), async retorno => {
+    if (retorno !== 'restaurar') return;
+    try {
+      const dados = await chamarVersoes('/api/config/versoes/' + encodeURIComponent(v.id) + '/restaurar', 'POST', { revisao });
+      config = structuredClone(dados.config); revisao = dados.revisao; inicial = JSON.stringify(config);
+      idsNovos.clear();
+      const primeiroAtivo = multi() ? config.eventos.findIndex(ev => ev.status === 'ativo') : -1;
+      selecionado = primeiroAtivo >= 0 ? primeiroAtivo : 'produtora';
+      renderizar(); avisos(dados.avisos); reiniciarConversa(); statusIA();
+      feedback('Versão ' + v.id + ' restaurada. O conteúdo será usado na próxima mensagem recebida.');
+      carregarVersoes();
+    } catch (erro) { feedback(erro.message, true, erro.detalhes); $('#feedback').scrollIntoView({ block: 'center' }); }
+  });
+}
+
 // Mostra o botão "Sair" quando o login é obrigatório e trata o logout.
 async function prepararSair() {
   const botao = document.getElementById('botao-sair');
@@ -608,6 +717,11 @@ async function prepararSair() {
   try {
     const r = await fetch('/api/sessao', { headers: { Accept: 'application/json' } });
     const s = await r.json();
+    const admin = s.papel === 'admin' || ((s.papel === null || s.papel === undefined) && !s.loginObrigatorio);
+    const aba = document.getElementById('aba-usuarios');
+    if (aba) aba.hidden = !admin;
+    papelEfetivo = admin ? 'admin' : s.papel;
+    aplicarPapel();
     if (!s.loginObrigatorio) return;
     botao.hidden = false;
     botao.addEventListener('click', async () => {

@@ -14,6 +14,9 @@ const SEM_SESSAO = { texto: 'Não iniciado', situacao: 'neutro' };
 
 const cartoes = new Map(); // nome da sessão -> cartão (elementos e estado)
 let carregando = false;
+let papelEfetivo = 'admin'; // ajustado por /api/sessao; o servidor também confere
+const podeEditar = () => papelEfetivo === 'admin' || papelEfetivo === 'editor';
+const podeDesconectar = () => papelEfetivo === 'admin';
 
 function criar(tag, classe, texto) {
   const el = document.createElement(tag);
@@ -85,11 +88,18 @@ function mostrarServidor(s) {
   const usadoGB = Math.max(0, (d.totalGB || 0) - (d.livreGB || 0));
   const pDisco = d.totalGB ? Math.round((usadoGB / d.totalGB) * 100) : 0;
   preencherCard('#srv-disco', d.livreGB === undefined ? '–' : d.livreGB + ' GB livres', 'de ' + (d.totalGB || 0) + ' GB', pDisco >= 90 ? 'erro' : pDisco >= 80 ? 'alerta' : 'ok');
+  if (typeof s.banco === 'boolean' && s.bancoConfigurado !== false) {
+    const atraso = Number(s.atrasoIngestaoSegundos);
+    const atrasado = Number.isFinite(atraso) && atraso > 30;
+    preencherCard('#srv-banco', s.banco ? 'No ar' : 'Fora do ar',
+      s.banco ? (Number.isFinite(atraso) ? (atrasado ? 'Histórico atrasado ' + duracao(atraso) : 'Histórico em dia') : 'Banco respondendo') : 'O histórico não está sendo gravado',
+      s.banco ? (atrasado ? 'alerta' : 'ok') : 'erro');
+  } else preencherCard('#srv-banco', 'Não usado', 'Conversas só em arquivo', '');
   preencherCard('#srv-ligado', duracao(s.ligadoHa), 'desde a última reinicialização', 'ok');
 }
 
 function servidorIndisponivel() {
-  for (const id of ['#srv-whatsapp', '#srv-n8n', '#srv-memoria', '#srv-disco', '#srv-ligado']) preencherCard(id, '–', 'Sem informação', '');
+  for (const id of ['#srv-whatsapp', '#srv-n8n', '#srv-memoria', '#srv-disco', '#srv-banco', '#srv-ligado']) preencherCard(id, '–', 'Sem informação', '');
 }
 
 async function carregarServidor() {
@@ -137,6 +147,9 @@ function criarCartao(nome) {
 
 function atualizarBotoes(c) {
   const s = c.status;
+  c.ligar.hidden = !podeEditar();
+  c.parar.hidden = !podeEditar();
+  c.desconectar.hidden = !podeDesconectar();
   c.ligar.disabled = c.ocupado || !(s === null || s === 'STOPPED' || s === 'FAILED');
   c.parar.disabled = c.ocupado || !(s === 'WORKING' || s === 'SCAN_QR_CODE' || s === 'STARTING');
   c.desconectar.disabled = c.ocupado || s === null;
@@ -250,6 +263,11 @@ async function prepararSair() {
   try {
     const r = await fetch('/api/sessao', { headers: { Accept: 'application/json' } });
     const s = await r.json();
+    const admin = s.papel === 'admin' || ((s.papel === null || s.papel === undefined) && !s.loginObrigatorio);
+    const aba = document.getElementById('aba-usuarios');
+    if (aba) aba.hidden = !admin;
+    papelEfetivo = admin ? 'admin' : s.papel;
+    for (const c of cartoes.values()) atualizarBotoes(c);
     if (!s.loginObrigatorio) return;
     botao.hidden = false;
     botao.addEventListener('click', async () => {

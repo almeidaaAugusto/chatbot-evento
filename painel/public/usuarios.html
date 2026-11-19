@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Usuários · Central do evento</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/usuarios.js" defer></script>
+</head>
+<body class="pagina-conversas pagina-usuarios">
+  <a class="pular" href="#novo">Pular para o conteúdo</a>
+  <header class="cabecalho">
+    <a class="marca" href="/" aria-label="Central do evento, início"><span class="marca-icone" aria-hidden="true">C</span><span>central<span class="marca-leve">doevento</span></span></a>
+    <nav class="abas" aria-label="Páginas do painel"><a href="/">Configuração</a><a href="/conversas">Conversas</a><a href="/metricas">Métricas</a><a href="/whatsapp">WhatsApp</a><a href="/usuarios" id="aba-usuarios" aria-current="page">Usuários</a></nav>
+    <span class="status-local"><span aria-hidden="true"></span>Painel</span>
+    <button type="button" id="botao-sair" class="botao botao-secundario botao-pequeno" hidden>Sair</button>
+  </header>
+  <main>
+    <div class="abertura abertura-conversas">
+      <div>
+        <p class="sobretitulo">ACESSO AO PAINEL</p>
+        <h1>Usuários</h1>
+        <p class="introducao">Quem entra no painel e o que cada pessoa pode fazer.<br class="desktop"> Administrador faz tudo. Editor edita a configuração e liga ou para os números.<br class="desktop"> Leitor só vê.</p>
+      </div>
+    </div>
+    <div id="aviso" class="feedback erro" role="alert" hidden></div>
+    <div id="ok" class="feedback" role="status" aria-live="polite" hidden></div>
+    <section id="novo" class="cartao" aria-labelledby="titulo-novo">
+      <h2 id="titulo-novo">Novo usuário</h2>
+      <form id="form-novo" class="formulario-usuario">
+        <label class="campo"><span>Usuário</span><input id="novo-usuario" name="usuario" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" required></label>
+        <label class="campo"><span>Papel</span>
+          <select id="novo-papel" name="papel" required>
+            <option value="admin">Administrador</option>
+            <option value="editor">Editor</option>
+            <option value="leitor" selected>Leitor</option>
+          </select>
+        </label>
+        <label class="campo"><span>Senha inicial</span><input id="novo-senha" name="senha" type="password" autocomplete="new-password" minlength="12" required><small class="dica">Mínimo de 12 caracteres.</small></label>
+        <div class="acoes-dialogo"><button type="submit" class="botao botao-primario">Criar usuário</button></div>
+      </form>
+    </section>
+    <section class="cartao" aria-labelledby="titulo-lista">
+      <h2 id="titulo-lista">Usuários cadastrados</h2>
+      <ul id="lista-usuarios" class="lista-usuarios"></ul>
+      <p id="vazio" class="vazio" hidden>Nenhum usuário cadastrado ainda.</p>
+    </section>
+  </main>
+  <dialog id="dialogo-senha" aria-labelledby="titulo-senha">
+    <form id="form-senha" method="dialog">
+      <h2 id="titulo-senha">Redefinir senha</h2>
+      <p id="texto-senha"></p>
+      <label class="campo"><span>Nova senha</span><input id="nova-senha" name="senha" type="password" autocomplete="new-password" minlength="12" required><small class="dica">Mínimo de 12 caracteres.</small></label>
+      <p id="erro-senha" class="feedback erro" role="alert" hidden></p>
+      <div class="acoes-dialogo">
+        <button type="submit" value="salvar" class="botao botao-primario">Salvar senha</button>
+        <button type="submit" value="cancelar" class="botao botao-secundario" formnovalidate>Cancelar</button>
+      </div>
+    </form>
+  </dialog>
+  <dialog id="dialogo-confirmar" aria-labelledby="titulo-confirmar">
+    <form method="dialog">
+      <h2 id="titulo-confirmar"></h2>
+      <p id="texto-confirmar"></p>
+      <div class="acoes-dialogo">
+        <button value="cancelar" class="botao botao-secundario">Cancelar</button>
+        <button value="confirmar" id="botao-confirmar" class="botao botao-primario"></button>
+      </div>
+    </form>
+  </dialog>
+</body>
+</html>

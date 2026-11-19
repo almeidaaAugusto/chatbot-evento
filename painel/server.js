@@ -8,9 +8,12 @@ const os = require('node:os');
 const { validarConfig } = require('../lib/configuracao');
 const Eventos = require('../lib/eventos');
 const IA = require('../lib/ia');
-const { criarRegistros } = require('./registros');
+const { criarRegistros, somarDias } = require('./registros');
 const { criarAutenticacao } = require('./autenticacao');
 const { criarWhatsApp } = require('./whatsapp');
+const { criarRepositorioDeUrl } = require('./db/repositorio');
+const { criarIngestor } = require('./ingestor');
+const { criarServicoUsuarios } = require('./usuarios');
 
 const LIMITE_CORPO = 1024 * 1024;
 // O simulador usa a mesma cota gratuita do atendimento real: no máximo isto por hora.
@@ -30,10 +33,34 @@ const arquivos = new Map([
   ['/login', ['login.html', 'text/html; charset=utf-8']],
   ['/login.js', ['login.js', 'application/javascript; charset=utf-8']],
   ['/whatsapp', ['whatsapp.html', 'text/html; charset=utf-8']],
-  ['/whatsapp.js', ['whatsapp.js', 'application/javascript; charset=utf-8']]
+  ['/whatsapp.js', ['whatsapp.js', 'application/javascript; charset=utf-8']],
+  ['/metricas', ['metricas.html', 'text/html; charset=utf-8']],
+  ['/metricas.js', ['metricas.js', 'application/javascript; charset=utf-8']],
+  ['/usuarios', ['usuarios.html', 'text/html; charset=utf-8']],
+  ['/usuarios.js', ['usuarios.js', 'application/javascript; charset=utf-8']]
 ]);
 // Conversas antigas são apagadas a cada hora (além de a cada "docker compose up -d").
 const INTERVALO_LIMPEZA_MS = 3600 * 1000;
+const PAPEL_ADMIN = ['admin'];
+const PAPEL_EDITOR = ['admin', 'editor'];
+// Quem pode chamar cada rota que muda algo (ou exige mais que leitura). Rota que não está aqui
+// só exige estar logado (qualquer papel). Resposta 403 para os demais.
+const PAPEIS_POR_ROTA = [
+  ['PUT', /^\/api\/config$/, PAPEL_EDITOR],
+  ['POST', /^\/api\/config\/versoes\/[^/]+\/restaurar$/, PAPEL_EDITOR],
+  ['POST', /^\/api\/whatsapp\/[^/]+\/desconectar$/, PAPEL_ADMIN],
+  ['POST', /^\/api\/whatsapp\/[^/]+\/(iniciar|parar)$/, PAPEL_EDITOR],
+  ['GET', /^\/api\/whatsapp\/[^/]+\/qr$/, PAPEL_EDITOR],
+  [null, /^\/api\/usuarios(\/|$)/, PAPEL_ADMIN]
+];
+function papeisDaRota(metodo, rota) {
+  const regra = PAPEIS_POR_ROTA.find(([m, padrao]) => (m === null || m === metodo) && padrao.test(rota));
+  return regra ? regra[2] : null;
+}
+const HISTORICO_POR_PAGINA = 50;
+const MAXIMO_DIAS_METRICAS = 366;
+const FORMATO_DIA = /^\d{4}-\d{2}-\d{2}$/;
+const INTERVALO_INGESTAO_MS = 5000;
 const objeto = valor => valor !== null && typeof valor === 'object' && !Array.isArray(valor);
 const revisao = conteudo => crypto.createHash('sha256').update(conteudo).digest('hex');
 
@@ -171,10 +198,18 @@ function verificadorN8n(n8nUrl, fetchN8n = globalThis.fetch) {
   };
 }
 
-function criarServidor({ configPath = path.join(__dirname, '../config/chatbot.json'), host = '127.0.0.1', publicPort, chaveIA = process.env.IA_API_KEY, fetchIA, logsDir = process.env.CHATBOT_LOGS, retencaoConversasDias = process.env.CONVERSAS_RETENCAO_DIAS, wahaUrl = process.env.WAHA_URL, fetchWaha, agora, usuario = process.env.PAINEL_USUARIO || 'admin', senhaHash = process.env.PAINEL_SENHA_HASH, dominio = process.env.PAINEL_DOMINIO, confiarProxy = process.env.PAINEL_CONFIAR_PROXY === 'true', wahaChave = process.env.WAHA_API_KEY, n8nUrl = process.env.N8N_URL, fetchN8n, agoraMs, atrasar } = {}) {
+function criarServidor({ configPath = path.join(__dirname, '../config/chatbot.json'), host = '127.0.0.1', publicPort, chaveIA = process.env.IA_API_KEY, fetchIA, logsDir = process.env.CHATBOT_LOGS, retencaoConversasDias = process.env.CONVERSAS_RETENCAO_DIAS, wahaUrl = process.env.WAHA_URL, fetchWaha, agora, usuario = process.env.PAINEL_USUARIO || 'admin', senhaHash = process.env.PAINEL_SENHA_HASH, dominio = process.env.PAINEL_DOMINIO, confiarProxy = process.env.PAINEL_CONFIAR_PROXY === 'true', wahaChave = process.env.WAHA_API_KEY, n8nUrl = process.env.N8N_URL, fetchN8n, agoraMs, atrasar, databaseUrl = process.env.DATABASE_URL, repositorio, criarPool, historicoRetencaoDias = process.env.HISTORICO_RETENCAO_DIAS, intervaloIngestaoMs = INTERVALO_INGESTAO_MS, intervaloBancoMs = 5000 } = {}) {
   chaveIA = String(chaveIA ?? '').trim();
+  // Banco: injetado (testes) ou criado a partir de DATABASE_URL. Sem nenhum dos dois, o painel
+  // funciona como antes (arquivos + login do .env). O pool só é criado quando o servidor começa a ouvir.
+  const repo = repositorio || (databaseUrl ? criarRepositorioDeUrl(String(databaseUrl), { criarPool, intervaloMs: intervaloBancoMs }) : null);
+  const retencaoMensagensDias = Math.min(Math.max(Math.floor(Number(historicoRetencaoDias)) || 180, 1), 3650);
+  const retencaoRegistrosDias = 90;
+  let bancoPronto = false; // migrações e inicialização concluídas
+  const bancoNoAr = () => Boolean(repo) && bancoPronto && repo.disponivel();
   // Lança erro se houver domínio sem hash de senha (o painel não sobe aberto na internet sem login).
-  const auth = criarAutenticacao({ usuario, senhaHash, dominio, agora: agoraMs, atrasar });
+  const auth = criarAutenticacao({ usuario, senhaHash, dominio, agora: agoraMs, atrasar, repositorio: repo });
+  const servicoUsuarios = repo ? criarServicoUsuarios({ repositorio: repo }) : null;
   const whatsapp = criarWhatsApp({ wahaUrl, chave: String(wahaChave ?? '').trim(), fetch: fetchWaha });
   // IP do cliente: X-Forwarded-For (último valor, o que o Caddy acrescentou) só com PAINEL_CONFIAR_PROXY=true.
   const ipDe = (req) => {
@@ -195,6 +230,98 @@ function criarServidor({ configPath = path.join(__dirname, '../config/chatbot.js
     throw erroHttp(500, 'Não foi possível ler os registros do robô. Confira se o volume de logs está disponível.');
   });
   configPath = path.resolve(configPath);
+  const ingestor = repo && registros.disponivel ? criarIngestor({ pasta: logsDir, repositorio: repo, intervaloMs: intervaloIngestaoMs }) : null;
+
+  // Respostas 503 padronizadas para o que depende do banco.
+  const exigirBanco = () => {
+    if (!bancoNoAr()) {
+      const erro = erroHttp(503, 'O banco de dados está indisponível no momento.', { bancoIndisponivel: true });
+      throw erro;
+    }
+  };
+  const diaValido = (dia) => {
+    if (typeof dia !== 'string' || !FORMATO_DIA.test(dia)) return false;
+    const [ano, mes, numero] = dia.split('-').map(Number);
+    const data = new Date(Date.UTC(ano, mes - 1, numero));
+    return data.getUTCFullYear() === ano && data.getUTCMonth() === mes - 1 && data.getUTCDate() === numero;
+  };
+  const intervaloDe = (parametros, padraoDias) => {
+    let de = parametros.get('de') || '';
+    let ate = parametros.get('ate') || '';
+    if (padraoDias) {
+      if (!ate) ate = registros.hoje();
+      if (!de) de = somarDias(ate, -(padraoDias - 1));
+    }
+    if ((de && !diaValido(de)) || (ate && !diaValido(ate))) throw erroHttp(400, 'Informe as datas no formato AAAA-MM-DD.');
+    if (de && ate && de > ate) throw erroHttp(400, 'A data inicial não pode ser maior que a final.');
+    if (de && ate && (Date.parse(ate) - Date.parse(de)) / 86400000 >= MAXIMO_DIAS_METRICAS) throw erroHttp(400, 'O período pode ter no máximo ' + MAXIMO_DIAS_METRICAS + ' dias.');
+    const [aa, am, ad] = (ate || '1970-01-01').split('-').map(Number);
+    const [da, dm, dd] = (de || '1970-01-01').split('-').map(Number);
+    return {
+      de, ate,
+      inicio: de ? new Date(da, dm - 1, dd) : null,
+      fim: ate ? new Date(aa, am - 1, ad + 1) : null
+    };
+  };
+  const fusoDoBanco = (() => {
+    const candidato = process.env.TZ || 'America/Sao_Paulo';
+    try { new Intl.DateTimeFormat('en-US', { timeZone: candidato }); return candidato; } catch { return 'UTC'; }
+  })();
+
+  // Grava a configuração (arquivo é a fonte da verdade, como sempre) e depois registra a versão
+  // no banco. Falha do banco não desfaz o arquivo: devolve um aviso.
+  async function salvarConfig({ config: nova, revisaoEsperada, autor, comentario }) {
+    const validacao = validarConfig(nova);
+    if (validacao.erros.length) throw erroHttp(422, 'Revise os campos indicados antes de salvar.', validacao);
+    const salvo = await serializar(configPath, async () => {
+      const anterior = await lerConfig(configPath);
+      if (anterior.revisao !== revisaoEsperada) throw erroHttp(409, 'A configuração foi alterada em outra janela. Recarregue os dados antes de salvar novamente.');
+      const conteudo = JSON.stringify(nova, null, 2) + '\n';
+      await gravarArquivo(configPath + '.bak', anterior.conteudo);
+      await gravarArquivo(configPath, conteudo);
+      return { config: nova, revisao: revisao(conteudo), avisos: validacao.avisos };
+    });
+    if (repo) {
+      try {
+        exigirBanco();
+        salvo.versao = await repo.config.inserirVersao({ autor, conteudo: nova, revisao: salvo.revisao, comentario: comentario || null });
+      } catch (erro) {
+        salvo.avisoVersao = 'A configuração foi salva, mas não foi possível registrar a versão no histórico (banco indisponível).';
+        if (!erro.bancoIndisponivel && !erro.status) console.error('Falha ao registrar a versão da configuração: ' + erro.message);
+      }
+    }
+    return salvo;
+  }
+
+  // Ao conectar (e a cada reconexão): cria o admin inicial e importa a configuração atual como versão 1.
+  async function inicializarBanco() {
+    if (auth.obrigatorio) {
+      const criado = await servicoUsuarios.garantirAdminInicial({ usuario: auth.usuario, senhaHash });
+      if (criado) console.log('Usuário administrador "' + auth.usuario + '" criado no banco a partir de PAINEL_SENHA_HASH.');
+    }
+    if ((await repo.config.contarVersoes()) === 0) {
+      try {
+        const { config: atual, conteudo } = await lerConfig(configPath);
+        await repo.config.inserirVersao({ autor: 'importação', conteudo: atual, revisao: revisao(conteudo), comentario: null });
+      } catch (erro) {
+        if (erro.bancoIndisponivel) throw erro;
+        console.error('Não foi possível importar a configuração atual como versão 1.');
+      }
+    }
+    bancoPronto = true;
+  }
+
+  const limparBanco = async () => {
+    if (!bancoNoAr()) return;
+    try {
+      await auth.limparSessoesDoBanco();
+      const r = await repo.retencao.limpar({ mensagensDias: retencaoMensagensDias, registrosDias: retencaoRegistrosDias });
+      if (ingestor) await ingestor.esquecerAntigos(30);
+      if (r.mensagens || r.registros || r.erros) console.log('Histórico antigo apagado do banco: ' + r.mensagens + ' mensagens, ' + r.registros + ' registros, ' + r.erros + ' erros.');
+    } catch (erro) {
+      if (!erro.bancoIndisponivel) console.error('Não foi possível limpar o histórico antigo do banco.');
+    }
+  };
   if (publicPort !== undefined && (!Number.isInteger(Number(publicPort)) || Number(publicPort) < 1 || Number(publicPort) > 65535)) throw new Error('PAINEL_PUBLIC_PORT precisa ser uma porta entre 1 e 65535.');
   publicPort = publicPort === undefined ? undefined : Number(publicPort);
   const server = http.createServer(async (req, res) => {
@@ -205,14 +332,21 @@ function criarServidor({ configPath = path.join(__dirname, '../config/chatbot.js
     try {
       conferirOrigem(req, server, host, publicPort, auth.dominio);
       const rota = new URL(req.url, 'http://localhost').pathname;
-      const sessao = auth.obrigatorio ? auth.sessaoDe(req.headers.cookie) : null;
+      const sessao = auth.obrigatorio ? await auth.sessaoDe(req.headers.cookie) : null;
       if (auth.obrigatorio && !sessao && !ROTAS_PUBLICAS.has(req.method + ' ' + rota)) {
         if (rota.startsWith('/api/')) return responder(res, 401, { erro: 'Faça login para continuar.', loginNecessario: true });
         res.writeHead(302, { Location: '/login' });
         return res.end();
       }
+      // Sem login obrigatório (uso local) todos podem tudo, exceto gerenciar usuários.
+      const papel = sessao ? sessao.papel : (auth.obrigatorio ? null : 'admin');
+      if (papel) {
+        const permitidos = papeisDaRota(req.method, rota);
+        if (permitidos && !permitidos.includes(papel)) throw erroHttp(403, 'Seu perfil não tem permissão para esta ação.');
+        if (!auth.obrigatorio && /^\/api\/usuarios(\/|$)/.test(rota)) throw erroHttp(403, 'Ative o login (PAINEL_SENHA_HASH) para gerenciar usuários.');
+      }
       if (req.method === 'GET' && rota === '/api/health') return responder(res, 200, { ok: true });
-      if (req.method === 'GET' && rota === '/api/sessao') return responder(res, 200, { logado: Boolean(sessao), usuario: sessao ? sessao.usuario : null, loginObrigatorio: auth.obrigatorio });
+      if (req.method === 'GET' && rota === '/api/sessao') return responder(res, 200, { logado: Boolean(sessao), usuario: sessao ? sessao.usuario : null, papel, loginObrigatorio: auth.obrigatorio });
       if (req.method === 'POST' && rota === '/api/login') {
         if (!auth.obrigatorio) throw erroHttp(400, 'O login não está ativado neste painel.');
         const dados = await lerCorpo(req, LIMITE_CORPO_LOGIN);
@@ -222,12 +356,13 @@ function criarServidor({ configPath = path.join(__dirname, '../config/chatbot.js
           res.setHeader('Retry-After', String(resultado.esperarSegundos));
           return responder(res, 429, { erro: 'Muitas tentativas. Tente novamente em ' + Math.ceil(resultado.esperarSegundos / 60) + ' minuto(s).', esperarSegundos: resultado.esperarSegundos });
         }
+        if (resultado.status === 503) throw erroHttp(503, 'O banco de dados ficou indisponível durante o login. Tente de novo em instantes.', { bancoIndisponivel: true });
         if (!resultado.ok) throw erroHttp(401, 'Usuário ou senha incorretos.');
         res.setHeader('Set-Cookie', auth.cookie(resultado.token, { seguro: conexaoSegura(req) }));
         return responder(res, 200, { ok: true, usuario: resultado.usuario });
       }
       if (req.method === 'POST' && rota === '/api/logout') {
-        auth.sair(req.headers.cookie);
+        await auth.sair(req.headers.cookie);
         res.setHeader('Set-Cookie', auth.cookie('', { seguro: conexaoSegura(req), apagar: true }));
         return responder(res, 200, { ok: true });
       }
@@ -239,7 +374,10 @@ function criarServidor({ configPath = path.join(__dirname, '../config/chatbot.js
           n8n: n8nNoAr,
           memoria: { totalMB: Math.round(os.totalmem() / 1048576), livreMB: Math.round(os.freemem() / 1048576) },
           disco: disco ? { totalGB: Math.round(disco.blocks * disco.bsize / 1073741824 * 10) / 10, livreGB: Math.round(disco.bavail * disco.bsize / 1073741824 * 10) / 10 } : null,
-          ligadoHa: Math.round(os.uptime())
+          ligadoHa: Math.round(os.uptime()),
+          banco: bancoNoAr(),
+          bancoConfigurado: Boolean(repo),
+          atrasoIngestaoSegundos: ingestor ? ingestor.atrasoSegundos() : null
         });
       }
       if (rota === '/api/whatsapp' && req.method === 'GET') {
@@ -275,17 +413,72 @@ function criarServidor({ configPath = path.join(__dirname, '../config/chatbot.js
       if (req.method === 'PUT' && rota === '/api/config') {
         const dados = await lerCorpo(req);
         if (!objeto(dados) || typeof dados.revisao !== 'string') throw erroHttp(400, 'Envie a configuração e a revisão carregada pelo painel.');
-        const validacao = validarConfig(dados.config);
-        if (validacao.erros.length) throw erroHttp(422, 'Revise os campos indicados antes de salvar.', validacao);
-        const salvo = await serializar(configPath, async () => {
-          const anterior = await lerConfig(configPath);
-          if (anterior.revisao !== dados.revisao) throw erroHttp(409, 'A configuração foi alterada em outra janela. Recarregue os dados antes de salvar novamente.');
-          const conteudo = JSON.stringify(dados.config, null, 2) + '\n';
-          await gravarArquivo(configPath + '.bak', anterior.conteudo);
-          await gravarArquivo(configPath, conteudo);
-          return { config: dados.config, revisao: revisao(conteudo), avisos: validacao.avisos };
-        });
-        return responder(res, 200, salvo);
+        if (dados.comentario !== undefined && dados.comentario !== null && (typeof dados.comentario !== 'string' || dados.comentario.length > 300)) throw erroHttp(400, 'O comentário precisa ser um texto de até 300 caracteres.');
+        const comentario = typeof dados.comentario === 'string' ? dados.comentario.trim() : '';
+        return responder(res, 200, await salvarConfig({ config: dados.config, revisaoEsperada: dados.revisao, autor: sessao ? sessao.usuario : (auth.usuario || 'painel'), comentario }));
+      }
+      if (req.method === 'GET' && rota === '/api/config/versoes') {
+        exigirBanco();
+        return responder(res, 200, { versoes: await repo.config.listarVersoes(50) });
+      }
+      const rotaVersao = /^\/api\/config\/versoes\/(\d{1,9})(\/restaurar)?$/.exec(rota);
+      if (rotaVersao && ((req.method === 'GET' && !rotaVersao[2]) || (req.method === 'POST' && rotaVersao[2]))) {
+        exigirBanco();
+        const id = Number(rotaVersao[1]);
+        const versao = await repo.config.versao(id);
+        if (!versao) throw erroHttp(404, 'Versão não encontrada.');
+        if (!rotaVersao[2]) return responder(res, 200, versao);
+        const dados = await lerCorpo(req, LIMITE_CORPO_LOGIN);
+        if (!objeto(dados) || typeof dados.revisao !== 'string') throw erroHttp(400, 'Envie a revisão carregada pelo painel.');
+        // Mesmo caminho do PUT: valida, confere a revisão, grava o arquivo e cria uma nova versão.
+        return responder(res, 200, await salvarConfig({ config: versao.config, revisaoEsperada: dados.revisao, autor: sessao ? sessao.usuario : (auth.usuario || 'painel'), comentario: 'Restaurada da versão ' + id }));
+      }
+      if (req.method === 'GET' && rota === '/api/historico') {
+        exigirBanco();
+        const parametros = new URL(req.url, 'http://localhost').searchParams;
+        const { inicio, fim } = intervaloDe(parametros, 0);
+        const busca = (parametros.get('busca') || '').trim();
+        const conversa = (parametros.get('conversa') || '').trim();
+        if (busca.length > 200 || conversa.length > 200) throw erroHttp(400, 'Busca ou conversa longa demais.');
+        const pagina = parametros.has('pagina') ? Number(parametros.get('pagina')) : 1;
+        if (!Number.isSafeInteger(pagina) || pagina < 1 || pagina > 100000) throw erroHttp(400, 'Página inválida.');
+        const linhas = await repo.historico.listar({ inicio, fim, busca, conversa, limite: HISTORICO_POR_PAGINA + 1, deslocamento: (pagina - 1) * HISTORICO_POR_PAGINA });
+        return responder(res, 200, { itens: linhas.slice(0, HISTORICO_POR_PAGINA), pagina, temMais: linhas.length > HISTORICO_POR_PAGINA });
+      }
+      const rotaConversa = /^\/api\/historico\/conversa\/([^/]+)$/.exec(rota);
+      if (req.method === 'GET' && rotaConversa) {
+        exigirBanco();
+        let conversa = '';
+        try { conversa = decodeURIComponent(rotaConversa[1]); } catch {}
+        if (!conversa || conversa.length > 200) throw erroHttp(400, 'Conversa inválida.');
+        return responder(res, 200, { itens: await repo.historico.conversa(conversa) });
+      }
+      if (req.method === 'GET' && rota === '/api/metricas') {
+        exigirBanco();
+        const { inicio, fim } = intervaloDe(new URL(req.url, 'http://localhost').searchParams, 30);
+        return responder(res, 200, await repo.metricas({ inicio, fim, fuso: fusoDoBanco }));
+      }
+      if (req.method === 'GET' && rota === '/api/usuarios') {
+        exigirBanco();
+        return responder(res, 200, { usuarios: await servicoUsuarios.listar() });
+      }
+      if (req.method === 'POST' && rota === '/api/usuarios') {
+        exigirBanco();
+        const dados = await lerCorpo(req, LIMITE_CORPO_LOGIN);
+        if (!objeto(dados)) throw erroHttp(400, 'Envie usuário, papel e senha.');
+        return responder(res, 201, await servicoUsuarios.criar({ usuario: dados.usuario, papel: dados.papel, senha: dados.senha }));
+      }
+      const rotaUsuario = /^\/api\/usuarios\/(\d{1,9})(\/senha)?$/.exec(rota);
+      if (rotaUsuario && ((req.method === 'PATCH' && !rotaUsuario[2]) || (req.method === 'POST' && rotaUsuario[2]))) {
+        exigirBanco();
+        const id = Number(rotaUsuario[1]);
+        const dados = await lerCorpo(req, LIMITE_CORPO_LOGIN);
+        if (!objeto(dados)) throw erroHttp(400, 'Corpo inválido.');
+        if (rotaUsuario[2]) {
+          await servicoUsuarios.definirSenha(id, dados.senha);
+          return responder(res, 200, { ok: true });
+        }
+        return responder(res, 200, await servicoUsuarios.atualizar(id, { papel: dados.papel, ativo: dados.ativo }, sessao ? sessao.usuarioId : null));
       }
       if (req.method === 'POST' && rota === '/api/simular') {
         const dados = await lerCorpo(req);
@@ -317,6 +510,7 @@ function criarServidor({ configPath = path.join(__dirname, '../config/chatbot.js
       return responder(res, 404, { erro: 'Página não encontrada.' });
     } catch (erro) {
       const status = erro.status || 500;
+      if (!erro.status) console.error('Erro inesperado no painel: ' + (erro && erro.message ? String(erro.message).slice(0, 300) : 'sem mensagem'));
       responder(res, status, { erro: status === 500 && !erro.status ? 'Não foi possível concluir a operação. Confira se o arquivo de configuração está acessível.' : erro.message, ...(erro.detalhes || {}) });
     }
   });
@@ -332,7 +526,25 @@ function criarServidor({ configPath = path.join(__dirname, '../config/chatbot.js
     temporizador.unref();
     server.once('close', () => clearInterval(temporizador));
   }
+  if (repo) {
+    // O banco é opcional: o painel já está de pé. A preparação (migrações, admin inicial, versão 1)
+    // roda em segundo plano e se repete sozinha quando o banco aparece ou volta.
+    server.once('listening', () => {
+      server.bancoPreparado = Promise.resolve(repo.iniciar({ aoConectar: inicializarBanco })).catch(() => {});
+      if (ingestor) ingestor.iniciar();
+      limparBanco();
+    });
+    const temporizadorBanco = setInterval(limparBanco, INTERVALO_LIMPEZA_MS);
+    temporizadorBanco.unref();
+    server.once('close', () => {
+      clearInterval(temporizadorBanco);
+      if (ingestor) ingestor.parar().catch(() => {});
+      Promise.resolve(repo.parar && repo.parar()).catch(() => {});
+    });
+  }
   server.registros = registros;
+  server.repositorio = repo;
+  server.ingestor = ingestor;
   return server;
 }
 

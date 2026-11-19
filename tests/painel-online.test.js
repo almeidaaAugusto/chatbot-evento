@@ -79,7 +79,7 @@ const cookieDe = (r) => (r.headers['set-cookie'] || [''])[0].split(';')[0];
 test('sem hash e sem domínio o painel segue aberto, como antes', async (t) => {
   const url = await subir(t, { senhaHash: '', dominio: '' });
   assert.equal((await req(url, '/api/config')).status, 200);
-  assert.deepEqual((await req(url, '/api/sessao')).dados, { logado: false, usuario: null, loginObrigatorio: false });
+  assert.deepEqual((await req(url, '/api/sessao')).dados, { logado: false, usuario: null, papel: 'admin', loginObrigatorio: false });
   assert.equal((await req(url, '/api/login', { metodo: 'POST', corpo: { usuario: 'admin', senha: SENHA } })).status, 400);
 });
 
@@ -111,7 +111,7 @@ test('com login: 401 nas APIs, 302 nas páginas e rotas públicas liberadas', as
   }
   assert.equal((await req(url, '/api/health')).status, 200);
   assert.equal((await req(url, '/style.css')).status, 200);
-  assert.deepEqual((await req(url, '/api/sessao')).dados, { logado: false, usuario: null, loginObrigatorio: true });
+  assert.deepEqual((await req(url, '/api/sessao')).dados, { logado: false, usuario: null, papel: null, loginObrigatorio: true });
   // As páginas novas da frente B podem ainda não existir: 200 ou 404, nunca redirecionamento nem erro.
   for (const rota of ['/login', '/login.js']) assert.ok([200, 404].includes((await req(url, rota)).status), rota);
 });
@@ -129,7 +129,7 @@ test('login certo cria sessão com cookie HttpOnly e SameSite, e logout encerra'
   assert.doesNotMatch(setCookie, /Secure/); // HTTP puro e sem domínio
   const cookie = cookieDe(r);
   assert.equal((await req(url, '/api/config', { headers: { Cookie: cookie } })).status, 200);
-  assert.deepEqual((await req(url, '/api/sessao', { headers: { Cookie: cookie } })).dados, { logado: true, usuario: 'admin', loginObrigatorio: true });
+  assert.deepEqual((await req(url, '/api/sessao', { headers: { Cookie: cookie } })).dados, { logado: true, usuario: 'admin', papel: 'admin', loginObrigatorio: true });
   const saida = await req(url, '/api/logout', { metodo: 'POST', corpo: {}, headers: { Cookie: cookie } });
   assert.equal(saida.status, 200);
   assert.match(saida.headers['set-cookie'][0], /Max-Age=0/);
