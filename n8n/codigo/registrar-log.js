@@ -81,6 +81,9 @@ const registro = {
   intencao: base.intencao,
   // Como a IA participou: respondeu, sem_resposta, limite_por_contato, limite_do_dia, erro_429...
   ia,
+  // Modelo que respondeu e quantas tentativas falharam antes dele (nunca o texto do contato).
+  iaModelo: ia === 'respondeu' && base.ia.modelo ? base.ia.modelo : undefined,
+  iaTentativas: Array.isArray(base.ia && base.ia.tentativas) && base.ia.tentativas.length > 0 ? base.ia.tentativas.length : undefined,
   contato: base.contato,
   msg: base.msg,
   detalhe: detalhe || undefined,

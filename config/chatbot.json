@@ -70,13 +70,14 @@
     "mensagem_midia": "Por aqui eu só consigo ler mensagens de texto 🙏 Escreva sua dúvida ou digite *menu* para ver as opções."
   },
   "ia": {
-    "_ajuda": "Assistente de IA para o que o robô não entende. Ligue com scripts\\configurar-ia.ps1 (grava a chave, testa e muda \"ativa\" para true). provedor: \"groq\" (gratuito, com cota) ou \"xai\" (Grok, pago). max_usos_por_contato: quantas vezes cada contato pode usar a IA; o contador zera janela_horas horas depois do último uso. max_usos_por_dia: teto somando todos os contatos (protege a cota gratuita: cada consulta gasta cerca de 2.500 tokens e o plano gratuito da Groq permite 200 mil por dia neste modelo). conhecimento: informações extras que a IA pode usar, além dos dados do evento e das respostas das opções. rodape: texto colocado no fim de cada resposta da IA (deixe \"\" para não usar). A IA recebe só o texto da mensagem, nunca o telefone do contato.",
+    "_ajuda": "Assistente de IA para o que o robô não entende. Ligue com scripts\\configurar-ia.ps1 (grava a chave, testa e muda \"ativa\" para true). provedor: \"groq\" (gratuito, com cota) ou \"xai\" (Grok, pago). modelo: modelo principal. modelos_reserva: até 2 modelos tentados em ordem quando o principal falha por cota (429), erro do servidor (5xx), tempo esgotado ou falha de rede; usam a mesma chave e o mesmo endereço, e cada modelo na Groq gratuita tem cota própria; [] não usa reserva. max_usos_por_contato: quantas vezes cada contato pode usar a IA; o contador zera janela_horas horas depois do último uso; 0 = sem limite. max_usos_por_dia: teto somando todos os contatos; 0 = sem limite. Com os dois em 0, a única forma de desligar a IA é \"ativa\": false; os contadores continuam servindo de estatística. Cada consulta gasta cerca de 2.500 tokens e a Groq gratuita tem cota diária por modelo (200 mil tokens por dia no modelo padrão). conhecimento: informações extras que a IA pode usar, além dos dados do evento e das respostas das opções. rodape: texto colocado no fim de cada resposta da IA (deixe \"\" para não usar). A IA recebe só o texto da mensagem, nunca o telefone do contato.",
     "ativa": true,
     "provedor": "groq",
     "modelo": "openai/gpt-oss-120b",
-    "max_usos_por_contato": 3,
+    "modelos_reserva": ["openai/gpt-oss-20b", "qwen/qwen3.8-27b"],
+    "max_usos_por_contato": 0,
     "janela_horas": 12,
-    "max_usos_por_dia": 80,
+    "max_usos_por_dia": 0,
     "tamanho_maximo_resposta": 600,
     "rodape": "_Resposta do assistente automático. Digite *menu* para ver as opções._"
   },

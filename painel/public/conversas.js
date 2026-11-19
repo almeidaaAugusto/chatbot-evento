@@ -347,10 +347,13 @@ function desenharIndicadores() {
   const ia = estado.config?.ia || {};
   const consultas = hoje.filter((r) => r.ia && !String(r.ia).startsWith('limite_')).length;
   const respondeu = hoje.filter((r) => r.ia === 'respondeu').length;
-  const limite = Number(ia.max_usos_por_dia) || 80;
-  $('#hoje-ia').textContent = ia.ativa === true ? consultas + ' de ' + limite : 'Desligada';
-  $('#ia-detalhe').textContent = ia.ativa === true ? plural(respondeu, 'respondida', 'respondidas') + ' pela IA' + (consultas >= limite ? '. Cota do dia esgotada' : '') : 'Ligue com scripts\\configurar-ia.ps1';
-  $('#card-ia').dataset.situacao = ia.ativa === true && consultas >= limite ? 'alerta' : 'neutro';
+  const brutoDiario = ia.max_usos_por_dia;
+  const semLimite = brutoDiario !== undefined && brutoDiario !== null && brutoDiario !== '' && Number(brutoDiario) === 0;
+  const limite = Number(brutoDiario) > 0 ? Number(brutoDiario) : 80;
+  const esgotado = !semLimite && consultas >= limite;
+  $('#hoje-ia').textContent = ia.ativa === true ? (semLimite ? consultas + ' · sem limite' : consultas + ' de ' + limite) : 'Desligada';
+  $('#ia-detalhe').textContent = ia.ativa === true ? plural(respondeu, 'respondida', 'respondidas') + ' pela IA' + (esgotado ? '. Cota do dia esgotada' : '') : 'Ligue com scripts\\configurar-ia.ps1';
+  $('#card-ia').dataset.situacao = ia.ativa === true && esgotado ? 'alerta' : 'neutro';
 
   const w = estado.whatsapp || {};
   const card = $('#card-whatsapp');

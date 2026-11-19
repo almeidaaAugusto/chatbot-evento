@@ -37,6 +37,7 @@
     "ativa": true,
     "url": "http://waha:3000/ia/v1/chat/completions",
     "modelo": "modelo-de-teste",
+    "modelos_reserva": ["reserva-1-de-teste", "reserva-2-de-teste"],
     "max_usos_por_contato": 4,
     "janela_horas": 1,
     "max_usos_por_dia": 100000,

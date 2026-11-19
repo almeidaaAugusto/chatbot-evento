@@ -1,13 +1,21 @@
-// Nó "Aplicar resposta da IA". O gerador embute aqui o assistente de IA (IA).
+// Nós "Aplicar resposta da IA", "(reserva 1)" e "(reserva 2)". O gerador embute aqui o
+// assistente de IA (IA) e define antes deste código a constante TENTATIVA (0, 1 ou 2).
 // Se a IA respondeu algo aproveitável, essa passa a ser a resposta e a sequência de
 // "não entendi" recomeça. Caso contrário (erro, tempo esgotado, limite da API, resposta
-// vazia ou com dado não confirmado) vale a orientação normal que o motor já escolheu.
+// vazia ou com dado não confirmado) vale a orientação normal que o motor já escolheu, ou
+// a próxima tentativa com um modelo reserva, quando a falha é do tipo que outro modelo resolve.
 
+const NOMES = ['Aplicar resposta da IA', 'Aplicar resposta da IA (reserva 1)', 'Aplicar resposta da IA (reserva 2)'];
 const base = $('Verificar limites da IA').first().json;
+const anterior = TENTATIVA > 0 ? $(NOMES[TENTATIVA - 1]).first().json : base;
+const falhas = Array.isArray(anterior.ia && anterior.ia.tentativas) ? anterior.ia.tentativas : [];
+const modelo = Array.isArray(base.ia.modelos) ? base.ia.modelos[TENTATIVA] : undefined;
 const lida = IA.interpretarResposta(base.config, $input.first().json ?? {});
 
 if (!lida.ok) {
-  return [{ json: { ...base, ia: { ...base.ia, resultado: lida.motivo } } }];
+  const tentativas = [...falhas, { modelo, motivo: lida.motivo }];
+  const tentarReserva = IA.deveTentarReserva(lida.motivo) && Array.isArray(base.ia.pedidos) && Boolean(base.ia.pedidos[TENTATIVA + 1]);
+  return [{ json: { ...base, ia: { ...base.ia, resultado: lida.motivo, tentativas, tentarReserva } } }];
 }
 
 const marca = IA.assinatura(lida.texto);
@@ -26,5 +34,5 @@ return [{ json: {
   estado,
   valorConversa: JSON.stringify(estado),
   chaves: { ...base.chaves, iguais: 'rep:' + base.sessao + ':' + base.chatId + ':ia:' + marca },
-  ia: { ...base.ia, resultado: 'respondeu' },
+  ia: { ...base.ia, resultado: 'respondeu', modelo, tentativas: falhas, tentarReserva: false },
 } }];

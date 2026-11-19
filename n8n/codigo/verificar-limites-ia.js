@@ -1,4 +1,4 @@
-// Nó "Verificar limites da IA".
+// Nó "Verificar limites da IA". Limite 0 significa sem limite: nunca barra.
 // A API gratuita tem cota: cada contato pode usar a IA poucas vezes por janela e existe
 // um teto diário para todos os contatos. Os contadores são lidos aqui e só aumentam
 // quando a chamada é liberada (nós "Redis: contar uso da IA").
@@ -14,9 +14,9 @@ let liberada = false;
 if (naHora > base.limites.mensagensPorHora) {
   // A mensagem já vai ser silenciada pelo limite por hora: não gasta a cota da IA.
   resultado = undefined;
-} else if (usosDoContato >= base.ia.limites.porContato) {
+} else if (base.ia.limites.porContato > 0 && usosDoContato >= base.ia.limites.porContato) {
   resultado = 'limite_por_contato';
-} else if (usosDoDia >= base.ia.limites.porDia) {
+} else if (base.ia.limites.porDia > 0 && usosDoDia >= base.ia.limites.porDia) {
   resultado = 'limite_do_dia';
 } else {
   liberada = true;
