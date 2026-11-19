@@ -1,5 +1,32 @@
 # Chatbot de atendimento do evento (WhatsApp + WAHA + n8n)
 
+> **Projeto de portfólio.** Chatbot de atendimento por WhatsApp para uma produtora de eventos,
+> usado de verdade no evento ReQuebra (14/11/2026) e hoje rodando numa VPS gratuita da Oracle. Os
+> dados reais (telefones, endereço do servidor, chaves) ficam fora do repositório: o que está aqui
+> usa dados de exemplo.
+>
+> **Funcionalidades**
+> - Vários eventos no mesmo número, com escolha por lista ou por palavra-chave.
+> - Vários números de WhatsApp, cada um com seus eventos.
+> - Respostas por regras (palavras-chave, perguntas de exemplo, correção de digitação) e, quando o
+>   robô não entende, um assistente de IA (Groq) com modelos reserva e conferência de links e valores.
+> - Painel online com HTTPS, login e papéis (admin, editor, leitor): edição do conteúdo, simulador,
+>   conversas reais, erros, métricas, histórico de versões da configuração e gestão do WhatsApp.
+> - Histórico de conversas e métricas no Postgres, com backup diário; o bot nunca depende do banco.
+> - Deploy em uma VM Oracle Cloud Always Free, administrada por scripts PowerShell.
+>
+> **Stack:** Docker Compose, WAHA (WhatsApp Web, engine GOWS), n8n, Redis, Postgres, painel em
+> Node.js, Caddy, Groq. Testes: `node --test tests/*.test.js`.
+>
+> **Como rodar localmente** (use um número de teste; veja o aviso mais abaixo):
+> ```
+> powershell -ExecutionPolicy Bypass -File scripts\gerar-env.ps1
+> copy config\chatbot.exemplo.json config\chatbot.json
+> docker compose up -d
+> ```
+> Detalhes em "Primeira instalação em outro computador". A documentação do projeto começa em
+> [docs/README.md](docs/README.md).
+
 Atendimento automático por WhatsApp para os eventos da **Caixa Preta** (hoje: *ReQuebra com
 Caio Prince*, 14/11/2026, Presidente Prudente). O contato manda uma mensagem, o robô
 reconhece números, frases, exemplos de perguntas e pequenos erros de digitação e responde
