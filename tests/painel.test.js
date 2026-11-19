@@ -530,7 +530,7 @@ test('painel: campo de modelos reserva da IA existe e os limites explicam que 0 
   const conversas = await fs.readFile(path.join(__dirname, '..', 'painel', 'public', 'conversas.js'), 'utf8');
   assert.ok(app.includes("chave: 'modelos_reserva'"), 'campo modelos_reserva');
   assert.ok(app.includes("tipo: 'lista_texto'"), 'tipo lista_texto');
-  assert.ok(app.includes('ia[chave] = [...new Set(valor.split'));
+  assert.ok(app.includes('alvo()[chave] = [...new Set(valor.split'));
   assert.ok(app.includes(".join(', ')"), 'exibe modelos separados por vírgula');
   assert.ok(app.includes('0 = sem limite. Se ausente, o padrão é 3.'), 'ajuda do limite por contato');
   assert.ok(app.includes('0 = sem limite. Se ausente, o padrão é 80.'), 'ajuda do limite diário');

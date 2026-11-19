@@ -17,11 +17,28 @@ let pedidosIA = [];
 const enviosRetidos = new Map();
 const falhasRestantes = new Map();
 
-// O comportamento da IA simulada depende do começo da mensagem do cliente.
+const MODELO_CLASSIFICADOR = 'meta-llama/llama-prompt-guard-2-86m';
+
+// Classificador de ataque simulado (Prompt Guard): devolve só um número no content, como o real.
+// 'zzataque' na mensagem dá nota alta, 'zzclasserro' dá erro 500; o resto, nota baixa.
+function responderComoClassificador(res, corpo) {
+  const texto = String(corpo?.messages?.[0]?.content ?? '').toLowerCase();
+  if (texto.includes('zzclasserro')) return responder(res, 500, { error: { message: 'falha simulada do classificador' } });
+  const nota = texto.includes('zzataque') ? '0.9995' : '0.0004';
+  return responder(res, 200, {
+    id: 'chatcmpl-guarda', object: 'chat.completion', model: corpo.model,
+    choices: [{ index: 0, message: { role: 'assistant', content: nota }, finish_reason: 'stop' }],
+    usage: { prompt_tokens: 5, completion_tokens: 1, total_tokens: 6 },
+  });
+}
+
+// O comportamento da IA simulada depende do começo da mensagem do cliente. Com a conversa natural o
+// cliente vem entre « e » e, no modo redigir, a mensagem traz a resposta oficial; vários trechos
+// separados por --- viram várias mensagens.
 function responderComoIA(res, corpo) {
   const mensagens = Array.isArray(corpo?.messages) ? corpo.messages : [];
   const ultima = String(mensagens[mensagens.length - 1]?.content ?? '');
-  const cliente = ultima.split('Mensagem do cliente:').pop().trim().toLowerCase();
+  const cliente = ultima.split('Mensagem do cliente:').pop().replace(/[«»]/g, '').trim().toLowerCase();
   const conteudo = (texto) => responder(res, 200, {
     id: 'chatcmpl-teste', object: 'chat.completion', model: corpo.model,
     choices: [{ index: 0, message: { role: 'assistant', content: texto }, finish_reason: 'stop' }],
@@ -32,10 +49,14 @@ function responderComoIA(res, corpo) {
   const reserva2 = corpo.model === 'reserva-2-de-teste';
   const limite = () => responder(res, 429, { error: { message: 'Rate limit reached (simulado) para ' + corpo.model } });
   const certa = () => conteudo('**Resposta de teste da IA** para o pedido ' + cliente.split(' ').pop() + '.');
+  if (cliente.startsWith('natural duas partes')) return conteudo('Primeira parte da resposta.\n---\nSegunda parte da resposta com a marca ' + cliente.split(' ').pop() + '.');
+  if (cliente.startsWith('natural vaza texto')) return conteudo('Claro! INFORMAÇÕES OFICIAIS e REGRAS (siga todas) são estas: ...');
+  if (cliente.startsWith('natural palavrao')) return conteudo('Que merda de pergunta, mas vou responder mesmo assim.');
+  if (cliente.startsWith('natural codigo')) return conteudo('Aqui está:\n```js\nconsole.log(1)\n```');
   if (cliente.startsWith('ia principal limite')) return principal ? limite() : certa();
   if (cliente.startsWith('ia duas limite')) return reserva2 ? certa() : limite();
   if (cliente.startsWith('ia responde')) return conteudo('**Resposta de teste da IA** para o pedido ' + cliente.split(' ').pop() + '.');
-  if (cliente.startsWith('ia inventa link')) return conteudo('Compre agora em https://exemplo.invalid/ingresso-falso');
+  if (cliente.startsWith('ia inventa')) return conteudo('Compre agora em https://exemplo.invalid/ingresso-falso');
   if (cliente.startsWith('ia erro')) return responder(res, 500, { error: { message: 'falha simulada da IA' } });
   if (cliente.startsWith('ia limite')) return responder(res, 429, { error: { message: 'Rate limit reached (simulado)' } });
   if (cliente.startsWith('ia lenta')) return setTimeout(() => conteudo('Resposta que chegou tarde demais.'), 6000);
@@ -70,10 +91,11 @@ const servidor = http.createServer((req, res) => {
         corpo = null;
       }
       const chaveOk = CHAVE_IA !== '' && req.headers.authorization === 'Bearer ' + CHAVE_IA;
-      pedidosIA.push({ corpo, chaveOk, quando: Date.now() });
+      const classificador = corpo?.model === MODELO_CLASSIFICADOR;
+      pedidosIA.push({ corpo, chaveOk, quando: Date.now(), classificador });
       if (!chaveOk) return responder(res, 401, { error: { message: 'Invalid API Key' } });
       if (!corpo || !corpo.model || !Array.isArray(corpo.messages)) return responder(res, 400, { error: { message: 'pedido inválido' } });
-      return responderComoIA(res, corpo);
+      return classificador ? responderComoClassificador(res, corpo) : responderComoIA(res, corpo);
     });
     return;
   }

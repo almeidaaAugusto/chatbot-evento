@@ -73,6 +73,12 @@ if (executou('Redis: sair do atendimento humano')) {
 
 const quando = $now.toISO();
 const ia = (base.ia && base.ia.resultado) || undefined;
+// Trava da IA que barrou a mensagem (entrada, classificador, saida ou contato) e nota do classificador.
+const trava = (base.ia && base.ia.trava) || undefined;
+const iaScore = base.ia && typeof base.ia.score === 'number' ? Math.round(base.ia.score * 100) / 100 : undefined;
+// Conversa natural: a IA devia redigir a resposta oficial mas não pôde (falha, limite ou trava): foi a pronta.
+const reservaPronta = resultado === 'respondida' && base.ia && base.ia.modo === 'redigir' && base.ia.resultado !== 'respondeu' ? true : undefined;
+const partes = resultado === 'respondida' && Array.isArray(base.partes) ? base.partes.length : undefined;
 const registro = {
   quando,
   resultado,
@@ -84,6 +90,10 @@ const registro = {
   // Modelo que respondeu e quantas tentativas falharam antes dele (nunca o texto do contato).
   iaModelo: ia === 'respondeu' && base.ia.modelo ? base.ia.modelo : undefined,
   iaTentativas: Array.isArray(base.ia && base.ia.tentativas) && base.ia.tentativas.length > 0 ? base.ia.tentativas.length : undefined,
+  trava,
+  iaScore,
+  ia_reserva_pronta: reservaPronta,
+  partes,
   contato: base.contato,
   msg: base.msg,
   detalhe: detalhe || undefined,
@@ -116,6 +126,9 @@ if (dados && typeof dados === 'object' && !NAO_REGISTRAR.includes(motivo)) {
     motivo: motivo || undefined,
     intencao: doAtendente ? undefined : base.intencao,
     ia,
+    trava,
+    ia_reserva_pronta: reservaPronta,
+    partes,
     resposta: typeof resposta === 'string' && resposta ? resposta : undefined,
     transferida: base.transferir === true && resultado === 'respondida' ? true : undefined,
     voltou_do_atendimento: detalhe === 'contato_voltou_do_atendimento_humano' ? true : undefined,

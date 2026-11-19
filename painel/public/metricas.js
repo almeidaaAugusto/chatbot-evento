@@ -14,11 +14,20 @@ const TOPO = 10;
 
 // Nomes amigáveis; qualquer valor fora daqui aparece como veio do servidor.
 const ORIGENS = new Map([
+  ['menu_regras', 'Menu ou regras'],
   ['menu', 'Menu ou regras'],
   ['regras', 'Menu ou regras'],
-  ['ia', 'IA'],
+  ['ia_redigida', 'IA reescrevendo a resposta'],
+  ['ia', 'IA respondendo'],
   ['fallback', 'Não entendeu (orientação)'],
+  ['atendimento_humano', 'Atendimento humano'],
   ['humano', 'Atendimento humano']
+]);
+const TIPOS_TRAVA = new Map([
+  ['entrada', 'Filtro de entrada'],
+  ['classificador', 'Classificador de ataques'],
+  ['saida', 'Filtro de saída'],
+  ['contato', 'Contato insistente']
 ]);
 const MOTIVOS_FALHA = new Map([
   ['sem_resposta', 'A IA não tinha a informação'],
@@ -234,9 +243,29 @@ function desenharIa(ia) {
   lista.hidden = falhas.length === 0;
   $('#ia-falhas-titulo').hidden = falhas.length === 0;
 
-  const vazio = consultas === 0 && falhas.length === 0;
+  const reserva = numero(ia.reservaPronta);
+  definir('ia-reserva', formatar(reserva));
+
+  const vazio = consultas === 0 && falhas.length === 0 && reserva === 0;
   $('#ia-totais').hidden = vazio;
   vazioDe('bloco-ia').hidden = !vazio;
+  desenharTravas(ia.travas || {});
+}
+
+// ---------- tentativas bloqueadas ----------
+
+function desenharTravas(travas) {
+  const tipos = (travas.porTipo || [])
+    .map((t) => ({ rotulo: TIPOS_TRAVA.get(t.tipo) || textoOu(t.tipo, 'Tipo não informado'), valor: numero(t.total) }))
+    .filter((t) => t.valor > 0)
+    .sort((a, b) => b.valor - a.valor);
+  const total = numero(travas.total) || tipos.reduce((soma, t) => soma + t.valor, 0);
+  definir('travas-total', formatar(total));
+  const lista = $('#travas-tipos');
+  lista.replaceChildren(...tipos.map((t) => criar('li', '', t.rotulo + ': ' + formatar(t.valor))));
+  lista.hidden = tipos.length === 0;
+  $('#travas-totais').hidden = total === 0;
+  vazioDe('bloco-travas').hidden = total > 0;
 }
 
 // ---------- dúvidas ----------
