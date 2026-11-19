@@ -4,14 +4,17 @@
 # tenta a cada -Intervalo segundos ate conseguir e no fim mostra o IP publico.
 #
 #   powershell -ExecutionPolicy Bypass -File scripts\oracle-criar-vm.ps1
-#   ... -Ocpus 2 -MemoriaGB 12        maquina maior (o padrao e 1 OCPU e 6 GB)
+#   ... -Ocpus 2 -MemoriaGB 12        maquina maior (o padrao e 1 OCPU e 6 GB; a VM de producao
+#                                     foi criada com 2 OCPU e 12 GB, o maximo do Always Free)
 #   ... -Intervalo 120                segundos entre tentativas (padrao 90)
 #   ... -MaxTentativas 500            desiste depois de N tentativas (padrao 0 = sem limite)
 #
 # Pre-requisitos (veja docs\vps-oracle.md, secao "Criar a VM automaticamente"):
-#   - OCI CLI instalado:            python -m pip install oci-cli
+#   - OCI CLI instalado:            python -m uv tool install --python 3.12 oci-cli
+#                                   (pip no Python 3.14 falha ao compilar o PyYAML)
 #   - Chave de API em ~\.oci\config (Console > Meu perfil > Chaves de API)
-#   - Uma rede com sub-rede PUBLICA (Networking > Virtual cloud networks > Start VCN Wizard)
+#   - Uma rede com sub-rede PUBLICA, Internet Gateway e rota 0.0.0.0/0 (o Start VCN Wizard
+#     pode deixar a rede incompleta: confira; veja docs\solucao-de-problemas.md)
 #   - Chave SSH em ~\.ssh\oracle_chatbot.pub
 param(
     [int]$Ocpus = 1,

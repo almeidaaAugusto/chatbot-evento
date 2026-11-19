@@ -4,8 +4,13 @@ Atendimento automático por WhatsApp para os eventos da **Caixa Preta** (hoje: *
 Caio Prince*, 14/11/2026, Presidente Prudente). O contato manda uma mensagem, o robô
 reconhece números, frases, exemplos de perguntas e pequenos erros de digitação e responde
 com um texto cadastrado. Quando fica em dúvida, pede esclarecimento. Quando não entende,
-pode consultar um **assistente de IA** gratuito (Groq), com uso limitado por contato. Roda
-neste computador com Docker; só a IA (opcional) usa um serviço externo.
+pode consultar um **assistente de IA** gratuito (Groq), com limites de uso configuráveis (hoje
+sem limite). Roda com Docker; **em produção roda só na VPS Oracle** (veja "Rodar na VPS").
+Só a IA (opcional) usa um serviço externo.
+
+> **Documentação do projeto:** contexto, arquitetura, decisões, operação e solução de problemas
+> estão em [docs/README.md](docs/README.md) e no [CLAUDE.md](CLAUDE.md). Este README é o guia de
+> uso.
 
 ```
 WhatsApp  ->  WAHA  --webhook-->  n8n  (identifica a mensagem, consulta o Redis)
@@ -21,7 +26,7 @@ WhatsApp  <-  WAHA  <--API-----  n8n  (envia a resposta)
 
 ## O que roda
 
-| Serviço | Para que serve | Endereço neste computador |
+| Serviço | Para que serve | Endereço (localhost; na VPS, pelo túnel SSH) |
 |---|---|---|
 | `waha` (WAHA 2026.10.1, engine GOWS) | Liga o WhatsApp à automação | http://localhost:3000/dashboard |
 | `n8n` (2.47.3) | Executa o workflow do chatbot | http://localhost:5678 |
@@ -35,6 +40,11 @@ WhatsApp  <-  WAHA  <--API-----  n8n  (envia a resposta)
 No PC, as portas são publicadas somente em `127.0.0.1`: nada fica acessível pela rede ou pela internet. Só o `caddy`, ligado no servidor, abre as portas 80 e 443.
 
 ## Comandos do dia a dia
+
+> Os comandos desta seção e das seguintes valem para a stack **no computador onde ela roda**.
+> Em produção isso é a VPS: no PC use `scriptsps.ps1 -Script <nome>` (veja "Rodar na VPS" e
+> [docs/operacao.md](docs/operacao.md)). **Não suba a stack real no PC**: dois robôs no mesmo
+> número respondem em dobro.
 
 Abra um terminal na pasta do projeto (`chatbot-evento`).
 
@@ -55,7 +65,7 @@ iniciar com o Windows (Settings > General > *Start Docker Desktop when you sign 
 
 ## Primeira instalação em outro computador
 
-Neste computador isto já foi feito. Em uma máquina nova, com o Docker Desktop aberto:
+Em uma máquina nova (a VPS usa `scriptsps.ps1 -Instalar` e `-Enviar`), com o Docker aberto:
 
 ```
 powershell -ExecutionPolicy Bypass -File scripts\gerar-env.ps1
@@ -305,8 +315,9 @@ Abra **http://localhost:8080** com o Docker em execução. O painel permite:
 Clique em **Salvar** para aplicar o conteúdo à próxima mensagem recebida, sem reiniciar o bot.
 O painel valida a configuração, preserva os ajustes avançados e mantém a versão anterior em
 `config/chatbot.json.bak`. Se outra janela salvar primeiro, ele pede para recarregar antes
-de substituir a edição. Acesso somente neste computador, sem login adicional. A porta pode
-ser alterada com `PAINEL_PORT` no `.env`.
+de substituir a edição. No PC (sem `PAINEL_SENHA_HASH`) o painel só abre em localhost e sem
+login; no servidor, com domínio configurado, o login é obrigatório (veja "Painel online"). A porta
+pode ser alterada com `PAINEL_PORT` no `.env`.
 
 Nas respostas, use `{{local}}`, `{{data}}`, `{{instagram}}` e os outros campos do evento
 para reutilizar essas informações. A versão anterior (só com marcadores de exemplo) ficou em
@@ -391,7 +402,7 @@ Período: hoje, 3 dias ou 7 dias. O botão **Abrir no WhatsApp** abre a conversa
 Para assumir uma conversa, digite `#humano` nela pelo celular do robô (e `#bot` para devolver).
 
 **Privacidade.** Para esta página, o texto das mensagens, a resposta, o nome e o telefone do
-contato ficam gravados **só neste computador**, no arquivo `conversas-AAAA-MM-DD.log` do volume
+contato ficam gravados **só no servidor onde o robô roda**, no arquivo `conversas-AAAA-MM-DD.log` do volume
 `logs`, por **7 dias** (`CONVERSAS_RETENCAO_DIAS` no `.env`, de 1 a 30). O painel apaga os dias
 mais antigos a cada hora. O log de atividade (`ver-logs.ps1`) continua sem texto e sem telefone.
 Para apagar tudo antes do prazo: `scripts\limpar-dados.ps1 -Logs`.
@@ -510,7 +521,7 @@ O workflow `Chatbot Evento - Atendimento WhatsApp` (arquivo `n8n/workflows/chatb
 Um segundo workflow, `Chatbot Evento - Registro de erros`, grava qualquer falha em `erros-AAAA-MM-DD.log`.
 
 Para ver ou alterar pela tela, abra http://localhost:5678. **No primeiro acesso o n8n pede
-para criar a conta de administrador** (e-mail e senha, guardados só neste computador); os
+para criar a conta de administrador** (e-mail e senha, guardados só no servidor onde o n8n roda); os
 workflows já importados aparecem depois do login. O código dos nós fica em `n8n/codigo/`;
 se alterá-lo, rode `node n8n/montar-workflows.js` e depois `scripts\reimportar-workflows.ps1`
 (a reimportação sobrescreve mudanças feitas pela tela nesses dois workflows).
@@ -605,7 +616,9 @@ gravando os arquivos de log, e o painel copia para o banco a cada 5 segundos.
 powershell -ExecutionPolicy Bypass -File scripts\testar.ps1
 ```
 
-Primeiro verifica o motor de interpretação, o painel HTTP e os nós do workflow. Depois
+Na prática, rode a suíte Docker **na VPS**, num projeto isolado (`chatbot-evento-teste`, sem
+portas), copiando a árvore para uma pasta temporária e apagando-a depois; os testes unitários
+(`node --test tests/*.test.js`) rodam no PC. Primeiro verifica o motor de interpretação, o painel HTTP e os nós do workflow. Depois
 sobe um ambiente **isolado** (n8n e Redis de verdade, WAHA simulado), dispara os casos e
 apaga tudo no final. Não usa o WhatsApp nem mexe no ambiente real. Cobre: textos da
 especificação, token do webhook, menu, todas as opções e palavras-chave (com acentos,
