@@ -1,39 +1,34 @@
-# Chatbot de atendimento do evento (WhatsApp + WAHA + n8n)
+# Chatbot de atendimento para eventos (WhatsApp + WAHA + n8n)
 
-> **Projeto de portfólio.** Chatbot de atendimento por WhatsApp para uma produtora de eventos,
-> usado de verdade no evento ReQuebra (14/11/2026) e hoje rodando numa VPS gratuita da Oracle. Os
-> dados reais (telefones, endereço do servidor, chaves) ficam fora do repositório: o que está aqui
-> usa dados de exemplo.
->
-> **Funcionalidades**
-> - Vários eventos no mesmo número, com escolha por lista ou por palavra-chave.
-> - Vários números de WhatsApp, cada um com seus eventos.
-> - Respostas por regras (palavras-chave, perguntas de exemplo, correção de digitação) e, quando o
->   robô não entende, um assistente de IA (Groq) com modelos reserva e conferência de links e valores.
-> - Painel online com HTTPS, login e papéis (admin, editor, leitor): edição do conteúdo, simulador,
->   conversas reais, erros, métricas, histórico de versões da configuração e gestão do WhatsApp.
-> - Histórico de conversas e métricas no Postgres, com backup diário; o bot nunca depende do banco.
-> - Deploy em uma VM Oracle Cloud Always Free, administrada por scripts PowerShell.
->
-> **Stack:** Docker Compose, WAHA (WhatsApp Web, engine GOWS), n8n, Redis, Postgres, painel em
-> Node.js, Caddy, Groq. Testes: `node --test tests/*.test.js`.
->
-> **Como rodar localmente** (use um número de teste; veja o aviso mais abaixo):
-> ```
-> powershell -ExecutionPolicy Bypass -File scripts\gerar-env.ps1
-> copy config\chatbot.exemplo.json config\chatbot.json
-> docker compose up -d
-> ```
-> Detalhes em "Primeira instalação em outro computador". A documentação do projeto começa em
-> [docs/README.md](docs/README.md).
+Chatbot de atendimento automático por WhatsApp para eventos. O contato manda uma mensagem e o
+robô responde com o conteúdo cadastrado (ingressos, valores, data e local, line-up, regras de
+entrada etc.). Ele reconhece números do menu, palavras-chave, exemplos de perguntas e pequenos
+erros de digitação; quando fica em dúvida, pede esclarecimento; quando não entende, consulta um
+assistente de IA.
 
-Atendimento automático por WhatsApp para os eventos da **Caixa Preta** (hoje: *ReQuebra com
-Caio Prince*, 14/11/2026, Presidente Prudente). O contato manda uma mensagem, o robô
-reconhece números, frases, exemplos de perguntas e pequenos erros de digitação e responde
-com um texto cadastrado. Quando fica em dúvida, pede esclarecimento. Quando não entende,
-pode consultar um **assistente de IA** gratuito (Groq), com limites de uso configuráveis (hoje
-sem limite). Roda com Docker; **em produção roda só na VPS Oracle** (veja "Rodar na VPS").
-Só a IA (opcional) usa um serviço externo.
+**Funcionalidades**
+- Vários eventos no mesmo número, com escolha por lista ou por palavra-chave.
+- Vários números de WhatsApp, cada um com seus eventos.
+- Respostas por regras (menu, palavras-chave, perguntas de exemplo, correção de digitação).
+- Assistente de IA (Groq) para o que as regras não cobrem, com modelos reserva e conferência de
+  links, valores e contatos contra o conteúdo cadastrado.
+- Encaminhamento para atendimento humano e proteções contra excesso de mensagens e laços.
+- Painel web com HTTPS, login e papéis (admin, editor, leitor): edição do conteúdo, simulador,
+  conversas, erros, métricas, histórico de versões da configuração e gestão dos números de WhatsApp.
+- Histórico de conversas e métricas em Postgres, com backup diário; o bot nunca depende do banco.
+- Deploy em VPS (Oracle Cloud Always Free) administrado por scripts PowerShell.
+
+**Stack:** Docker Compose, WAHA (WhatsApp Web, engine GOWS), n8n, Redis, Postgres, painel em
+Node.js, Caddy e Groq. Testes: `node --test tests/*.test.js`.
+
+**Como rodar localmente** (use um número de teste; veja o aviso mais abaixo):
+```
+powershell -ExecutionPolicy Bypass -File scriptsgerar-env.ps1
+copy configchatbot.exemplo.json configchatbot.json
+docker compose up -d
+```
+Detalhes em "Primeira instalação em outro computador". O repositório usa dados de exemplo; os
+dados reais (configuração, chaves, endereço do servidor) ficam fora dele.
 
 > **Documentação do projeto:** contexto, arquitetura, decisões, operação e solução de problemas
 > estão em [docs/README.md](docs/README.md) e no [CLAUDE.md](CLAUDE.md). Este README é o guia de
@@ -159,32 +154,30 @@ Também dá para fazer pelo painel do WAHA (http://localhost:3000/dashboard). O 
 senha estão no `.env` (`WAHA_DASHBOARD_USERNAME` / `WAHA_DASHBOARD_PASSWORD`); se o painel
 pedir a chave da API, é o valor de `WAHA_API_KEY`.
 
-## Conteúdo do evento (Caixa Preta)
+## Conteúdo de exemplo
 
-> O arquivo está no formato de vários eventos (ver a seção **Vários eventos**). O conteúdo abaixo
-> é o do evento **ReQuebra com Caio Prince** (14/11/2026), hoje com status `encerrado`: por isso
-> o robô responde `mensagens.sem_eventos` até que um evento seja ativado. Os campos do evento
-> ficam em `eventos[].evento`; nome, Instagram, e-mail e Linktree da produtora ficam em `produtora`.
+O arquivo `config/chatbot.exemplo.json` traz um evento completo, no formato de vários eventos
+(ver a seção **Vários eventos**), para servir de modelo. Os campos do evento ficam em
+`eventos[].evento`; os dados da organização (nome, Instagram, e-mail, Linktree) ficam em
+`produtora`. Um evento com status `encerrado` não é atendido: o robô responde
+`mensagens.sem_eventos` até que algum evento seja ativado.
 
-O conteúdo de `config/chatbot.json` foi montado a partir do
-[Linktree da produtora](https://linktr.ee/produtoracaixapreta) e da
-[página do evento na Cheers](https://cheers.com.br/evento/requebra-com-caio-prince-35077),
-conferidos em **10/11/2026**. O menu tem 10 opções:
+O menu do exemplo tem 10 opções:
 
 | Nº | Assunto | O que responde |
 |---|---|---|
-| 1 | Comprar ingresso | Link da Cheers (com taxa) e os 3 vendedores sem taxa no WhatsApp (Kakau, Esther, Jorge) |
+| 1 | Comprar ingresso | Onde comprar e os contatos de venda |
 | 2 | Valores e lotes | Lote e valor atuais (campo `evento.ingresso`) e o link para conferir |
-| 3 | Data, horário e local | Sábado 14/11/2026, 22h às 5h, Presidente Prudente; endereço ainda não divulgado |
-| 4 | Line-up e estilos | DJ Caio Prince (SP) + atrações a confirmar; estilos musicais |
-| 5 | Documentos e idade | Documento original com foto ou app oficial, +18 |
-| 6 | Proibido levar | Copos térmicos, vidro, metal, armas, drogas; regra contra opressão |
-| 7 | Meu ingresso / cancelamento | Onde achar o QR Code na Cheers e a regra de cancelamento (7 dias, até 48 h antes) |
-| 8 | Grupo oficial | Link do grupo "Caio Prince em Prudente" |
-| 9 | Fotos dos bailes | Os 8 álbuns de fotos do Linktree |
-| 0 | Falar com a equipe | Instagram @prod.caixapreta e o e-mail sac.caixapreta@gmail.com |
+| 3 | Data, horário e local | Data, horário de início e término, cidade e local |
+| 4 | Line-up e estilos | Atrações e estilos musicais |
+| 5 | Documentos e idade | Documento exigido e idade mínima |
+| 6 | Proibido levar | Itens proibidos e regras de convivência |
+| 7 | Meu ingresso / cancelamento | Onde achar o ingresso e a regra de cancelamento |
+| 8 | Grupo oficial | Link do grupo do evento |
+| 9 | Fotos | Álbuns de fotos de eventos anteriores |
+| 0 | Falar com a equipe | Canais de atendimento humano |
 
-Também reconhece perguntas sobre a produtora (não aparece no menu: `"mostrar_no_menu": false`).
+Também há assuntos que o robô reconhece mas que não aparecem no menu (`"mostrar_no_menu": false`).
 
 **Quando houver novidade, troque só o campo do evento** (no painel, seção 01): todas as
 respostas e a IA passam a usar o valor novo.
@@ -192,12 +185,10 @@ respostas e a IA passam a usar o valor novo.
 | Novidade | Campo |
 |---|---|
 | Saiu o endereço/mapa | `local` |
-| O lote virou ou mudou o preço | `ingresso` (hoje: 5º lote, R$ 40,00 + taxa) |
-| Anunciaram as outras atrações | `lineup` |
+| O lote virou ou mudou o preço | `ingresso` |
+| Anunciaram as atrações | `lineup` |
 | Novo evento | `nome`, `data`, `horario`, `termino`, links e, se mudar, as respostas das opções |
 
-O botão do Linktree ainda diz "PRIMEIRO LOTE", mas a Cheers mostrava o **quinto lote a
-R$ 40,00** em 10/11/2026; o robô usa o valor da Cheers e sempre manda o link para conferir.
 As informações extras que só a IA usa (e a lista do que ainda **não** foi divulgado, para ela
 não inventar) ficam em `ia.conhecimento` (painel, seção 05).
 
@@ -282,12 +273,12 @@ sessões do WAHA, com a situação e o telefone de cada uma, use `-Listar`.
 Depois de conectar, cadastre o número para o robô conhecê-lo:
 
 1. Em **Produtora (geral) > "Números de WhatsApp"** (painel), adicione o número com o **mesmo
-   nome de sessão** e um nome amigável (por exemplo, "Caixa Preta").
+   nome de sessão** e um nome amigável (por exemplo, "Produtora").
 2. Salve. Isso grava o campo `numeros` da raiz de `config/chatbot.json`:
 
 ```json
 "numeros": [
-  { "sessao": "default", "nome": "Caixa Preta" },
+  { "sessao": "default", "nome": "Produtora" },
   { "sessao": "loja2", "nome": "Loja 2" }
 ]
 ```
@@ -350,8 +341,7 @@ login; no servidor, com domínio configurado, o login é obrigatório (veja "Pai
 pode ser alterada com `PAINEL_PORT` no `.env`.
 
 Nas respostas, use `{{local}}`, `{{data}}`, `{{instagram}}` e os outros campos do evento
-para reutilizar essas informações. A versão anterior (só com marcadores de exemplo) ficou em
-`config/chatbot.json.antes-caixapreta.bak`.
+para reutilizar essas informações.
 
 Tudo o que o robô diz fica em **`config/chatbot.json`**. Edite, salve e pronto: vale a
 partir da próxima mensagem, sem reiniciar nada.
