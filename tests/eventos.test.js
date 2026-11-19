@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const E = require('../lib/eventos');
 const { validarConfig } = require('../lib/configuracao');
 const v1Teste = require('./config/chatbot.json');
-const arquivoReal = require('../config/chatbot.json');
+const arquivoReal = require('../config/chatbot.exemplo.json');
 
 const opcao = (id, numero, palavra, resposta) => ({ id, titulo: 'Local', palavras_exatas: [numero], palavras_chave: [palavra], resposta });
 const evento = (id, status, nome, gatilhos, extra = {}) => ({
@@ -173,7 +173,7 @@ test('migrarParaV2 converte a configuração de teste e a real', () => {
   assert.equal(E.resolver(t, 'menu', {}).intencao, 'menu');
 });
 
-test('config/chatbot.json real (v2) valida sem erros e o evento encerrado não é atendido', () => {
+test('config/chatbot.exemplo.json (v2) valida sem erros e o evento encerrado não é atendido', () => {
   const v = validarConfig(arquivoReal);
   assert.deepEqual(v.erros, []);
   assert.equal(E.ehMultiEvento(arquivoReal), true);
