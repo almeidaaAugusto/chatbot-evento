@@ -17,6 +17,12 @@
 #   -Parar                       docker compose down no servidor (os dados ficam nos volumes).
 #   -BaixarConfig                Copia config\chatbot.json do servidor para este computador.
 #   -Backup                      Baixa config, .env e o pareamento do WhatsApp para backups\vps-AAAA-MM-DD-HHMM\.
+#   -SenhaPainel                 Pede usuario e senha (minimo 12 caracteres, digitada sem aparecer) do painel online,
+#                                grava so o hash no .env do servidor e reinicia o painel. Faca ANTES de -Online.
+#   -Online [-Dominio <dominio>] Abre o painel na internet com HTTPS: firewall do servidor (80/443), Caddy e login.
+#                                Sem -Dominio usa <ip-com-tracos>.sslip.io (so se o servidor for um IP).
+#                                Antes: -Enviar, -SenhaPainel e a Security List da Oracle (80 e 443).
+#   -OnlineDesligar              Desliga o acesso pela internet (para o Caddy); o painel volta a ser so por tunel.
 param(
     [switch]$Configurar,
     [Alias('Host')][string]$Servidor,
@@ -32,7 +38,11 @@ param(
     [switch]$Status,
     [switch]$Parar,
     [switch]$BaixarConfig,
-    [switch]$Backup
+    [switch]$Backup,
+    [switch]$SenhaPainel,
+    [switch]$Online,
+    [string]$Dominio,
+    [switch]$OnlineDesligar
 )
 
 $ErrorActionPreference = 'Stop'
@@ -40,9 +50,9 @@ $ErrorActionPreference = 'Stop'
 $raiz = Get-Raiz
 $imagemArm = 'gows-arm-2026.10.1'
 
-$acoes = @($Configurar, $Instalar, $Enviar, $Tunel, [bool]$Script, $Status, $Parar, $BaixarConfig, $Backup) | Where-Object { $_ }
+$acoes = @($Configurar, $Instalar, $Enviar, $Tunel, [bool]$Script, $Status, $Parar, $BaixarConfig, $Backup, $SenhaPainel, $Online, $OnlineDesligar) | Where-Object { $_ }
 if ($acoes.Count -ne 1) {
-    Get-Content -LiteralPath $PSCommandPath -TotalCount 21 | ForEach-Object { Write-Host ($_ -replace '^# ?', '') }
+    Get-Content -LiteralPath $PSCommandPath -TotalCount 25 | ForEach-Object { Write-Host ($_ -replace '^# ?', '') }
     Write-Host ''
     Write-Host 'Escolha exatamente uma acao.'
     exit 1
@@ -65,6 +75,39 @@ function Write-Enderecos {
     Write-Host "  Painel:  http://localhost:$($p.Painel)"
     Write-Host "  WAHA:    http://localhost:$($p.Waha)/dashboard"
     Write-Host "  n8n:     http://localhost:$($p.N8n)"
+    try { $dom = (Read-DotEnv -Servidor)['PAINEL_DOMINIO'] } catch { $dom = $null }
+    if ($dom) { Write-Host "  Online:  https://$dom   (painel, com login; nao precisa de tunel)" }
+}
+
+# Grava (ou troca) linhas CHAVE=valor no .env do servidor, sem apagar as outras linhas.
+# Valores vazios sao permitidos; so letras, numeros e . _ : @ / + = - (nada que o compose interpole).
+function Set-EnvVps([System.Collections.IDictionary]$Valores) {
+    $filtros = @()
+    $linhas = @()
+    foreach ($chave in $Valores.Keys) {
+        $valor = [string]$Valores[$chave]
+        if ($chave -notmatch '^[A-Z][A-Z0-9_]*$') { throw "Nome de variavel invalido: $chave" }
+        if ($valor -notmatch '^[A-Za-z0-9._:@/+=-]*$') { throw "Valor invalido para $chave (caracteres nao permitidos)." }
+        $filtros += "-e '^$chave='"
+        $linhas += "printf '%s\n' '$chave=$valor' >> `"`$tmp`""
+    }
+    $bash = @(
+        'set -e',
+        'test -f .env',
+        'tmp=$(mktemp .env.tmp.XXXXXX)',
+        'chmod 600 "$tmp"',
+        ('grep -v ' + ($filtros -join ' ') + ' .env > "$tmp" || true')
+    ) + $linhas + @('mv "$tmp" .env')
+    Invoke-Externo { Invoke-NaPasta ($bash -join "`n") } -Silencioso
+    if ($LASTEXITCODE -ne 0) { throw 'Nao foi possivel gravar no .env do servidor (ele existe? Rode -Enviar antes).' }
+    $script:EnvVps = $null
+}
+
+# SecureString para texto, so em memoria (a senha nunca vai para argumento de linha de comando nem para log).
+function ConvertFrom-SecureStringPlano([System.Security.SecureString]$Segura) {
+    $ptr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($Segura)
+    try { return [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr) }
+    finally { [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }
 }
 
 # ---------------------------------------------------------------- configurar
@@ -143,10 +186,23 @@ if ($Enviar) {
     if ($LASTEXITCODE -ne 0) { throw 'Falha ao extrair o codigo no servidor.' }
 
     if ($mandarEnv) {
+        # Com -SobrescreverEnv, guarda a configuracao do painel online que ja estava no servidor.
+        $configOnline = [ordered]@{}
+        if ($temEnv) {
+            $atual = Read-DotEnv -Servidor
+            foreach ($k in @('PAINEL_DOMINIO', 'PAINEL_USUARIO', 'PAINEL_SENHA_HASH', 'PAINEL_CONFIAR_PROXY', 'COMPOSE_PROFILES')) {
+                if ($atual[$k]) { $configOnline[$k] = $atual[$k] }
+            }
+        }
         Write-Host 'Enviando o .env...'
         Copy-ParaVps $localEnv "$($c.Pasta)/.env.novo"
         Invoke-NaPasta "sed -i 's/\r`$//' .env.novo && chmod 600 .env.novo && mv .env.novo .env"
         if ($LASTEXITCODE -ne 0) { throw 'Falha ao gravar o .env no servidor.' }
+        $script:EnvVps = $null
+        if ($configOnline.Count -gt 0) {
+            Set-EnvVps $configOnline
+            Write-Host 'Configuracao do painel online do servidor preservada no novo .env.'
+        }
     } else {
         Write-Host '.env do servidor preservado (use -SobrescreverEnv para trocar).'
     }
@@ -161,6 +217,104 @@ if ($Enviar) {
     Invoke-Externo { Invoke-NaPasta 'docker compose up -d' } -Completo | Out-Host
     if ($LASTEXITCODE -ne 0) { throw 'docker compose up -d falhou no servidor.' }
     Invoke-Externo { Invoke-NaPasta 'docker compose ps' } -Completo | Out-Host
+    exit 0
+}
+
+# ---------------------------------------------------------------- senha do painel
+if ($SenhaPainel) {
+    $usuarioPainel = Read-Host 'Usuario do painel (Enter = admin)'
+    if (-not $usuarioPainel) { $usuarioPainel = 'admin' }
+    if ($usuarioPainel -notmatch '^[A-Za-z0-9._-]{3,32}$') { throw 'Usuario invalido: use de 3 a 32 letras, numeros, ponto, hifen ou sublinhado.' }
+    $segura1 = Read-Host 'Senha do painel (minimo 12 caracteres)' -AsSecureString
+    $segura2 = Read-Host 'Repita a senha' -AsSecureString
+    $plana = ConvertFrom-SecureStringPlano $segura1
+    $plana2 = ConvertFrom-SecureStringPlano $segura2
+    $codigo = 1
+    try {
+        if ($plana -ne $plana2) { throw 'As duas senhas digitadas sao diferentes.' }
+        if ($plana.Length -lt 12) { throw 'A senha precisa ter no minimo 12 caracteres.' }
+        Write-Host 'Gerando o hash da senha no servidor...'
+        # A senha viaja so pelo stdin do ssh (UTF-8, sem BOM); nunca na linha de comando.
+        $cmd = 'docker compose run --rm --no-deps -T --entrypoint node painel /app/painel/senha.js'
+        $codificacaoAnterior = $OutputEncoding
+        $OutputEncoding = New-Object System.Text.UTF8Encoding($false)
+        try { $saida = @(Invoke-Externo { $plana | Invoke-VpsSsh ('cd ' + (ConvertTo-BashArg $c.Pasta) + ' && ' + $cmd) }) }
+        finally { $OutputEncoding = $codificacaoAnterior }
+        $codigo = $LASTEXITCODE
+    } finally {
+        $plana = $null
+        $plana2 = $null
+        $segura1.Dispose()
+        $segura2.Dispose()
+    }
+    if ($codigo -ne 0) { throw 'O servidor nao gerou o hash (painel/senha.js falhou). O servidor ja recebeu o codigo novo (-Enviar)?' }
+    $hash = (@($saida | ForEach-Object { "$_".Trim() } | Where-Object { $_ }) | Select-Object -Last 1)
+    if (-not $hash -or $hash -notmatch '^[A-Za-z0-9._:+/=-]+$') { throw 'O servidor devolveu um hash em formato inesperado. Nada foi gravado.' }
+    Set-EnvVps ([ordered]@{ PAINEL_USUARIO = $usuarioPainel; PAINEL_SENHA_HASH = $hash })
+    Write-Host 'Usuario e hash gravados no .env do servidor. Reiniciando o painel...'
+    Invoke-Externo { Invoke-NaPasta 'docker compose up -d --force-recreate --no-deps painel' } -Completo | Out-Host
+    if ($LASTEXITCODE -ne 0) { throw 'Nao foi possivel reiniciar o painel no servidor.' }
+    Write-Host "Pronto. Usuario do painel: $usuarioPainel. A senha nao fica guardada em nenhum arquivo (so o hash)."
+    exit 0
+}
+
+# ---------------------------------------------------------------- painel online
+if ($Online) {
+    if (-not $Dominio) {
+        if ($c.Host -match '^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$') { $Dominio = "$($Matches[1])-$($Matches[2])-$($Matches[3])-$($Matches[4]).sslip.io" }
+        else { throw 'Informe o dominio: vps.ps1 -Online -Dominio <dominio>' }
+    }
+    $Dominio = $Dominio.Trim().ToLowerInvariant()
+    if ($Dominio -notmatch '^(?=.{4,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$') { throw "Dominio invalido: $Dominio" }
+
+    $envServidor = Read-DotEnv -Servidor
+    if (-not $envServidor['PAINEL_SENHA_HASH']) { throw 'O painel ainda nao tem senha. Rode primeiro: vps.ps1 -SenhaPainel (sem senha o painel nao sobe com dominio).' }
+    if (-not (Test-NaPasta 'grep -q caddy docker-compose.yml')) { throw 'O servidor ainda nao tem o Caddy no docker-compose.yml. Faca o commit e rode: vps.ps1 -Enviar' }
+
+    $sh = Join-Path $raiz 'deploy\preparar-servidor.sh'
+    if (-not (Test-Path -LiteralPath $sh)) { throw "Arquivo nao encontrado: $sh" }
+    Write-Host '1/4 Liberando as portas 80 e 443 no firewall do servidor...'
+    Copy-ParaVps $sh 'preparar-servidor.sh'
+    Invoke-Externo { Invoke-VpsSsh "sed -i 's/\r$//' preparar-servidor.sh; bash preparar-servidor.sh --so-web; codigo=`$?; rm -f preparar-servidor.sh; exit `$codigo" } -Completo | Out-Host
+    if ($LASTEXITCODE -ne 0) { throw 'A etapa de firewall falhou. Veja as mensagens acima (e seguro repetir).' }
+
+    Write-Host '2/4 Gravando a configuracao no .env do servidor...'
+    Set-EnvVps ([ordered]@{ PAINEL_DOMINIO = $Dominio; COMPOSE_PROFILES = 'online'; PAINEL_CONFIAR_PROXY = 'true' })
+
+    Write-Host '3/4 Subindo os conteineres (a primeira vez baixa a imagem do Caddy)...'
+    Invoke-Externo { Invoke-NaPasta 'docker compose up -d' } -Completo | Out-Host
+    if ($LASTEXITCODE -ne 0) { throw 'docker compose up -d falhou no servidor.' }
+
+    Write-Host "4/4 Testando https://$Dominio/api/health (o certificado pode levar alguns segundos)..."
+    try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch { }
+    $ok = $false
+    for ($i = 1; $i -le 24 -and -not $ok; $i++) {
+        try {
+            $r = Invoke-WebRequest -Uri "https://$Dominio/api/health" -UseBasicParsing -TimeoutSec 10
+            if ([int]$r.StatusCode -eq 200) { $ok = $true }
+        } catch { Start-Sleep -Seconds 5 }
+    }
+    if (-not $ok) {
+        Write-Host 'O endereco nao respondeu a tempo. Confira:'
+        Write-Host '  - Security List da Oracle com as portas 80 e 443 (TCP) liberadas;'
+        Write-Host '  - o dominio aponta para o IP do servidor;'
+        Write-Host '  - logs: docker compose logs caddy (no servidor), ou vps.ps1 -Status.'
+        exit 1
+    }
+    Write-Host ''
+    Write-Host "Painel online: https://$Dominio"
+    Write-Host 'Entre com o usuario e a senha definidos em -SenhaPainel.'
+    exit 0
+}
+
+# ---------------------------------------------------------------- desligar online
+if ($OnlineDesligar) {
+    Set-EnvVps ([ordered]@{ COMPOSE_PROFILES = ''; PAINEL_CONFIAR_PROXY = 'false' })
+    Invoke-Externo { Invoke-NaPasta 'docker compose --profile online rm -sf caddy' } -Completo | Out-Host
+    Invoke-Externo { Invoke-NaPasta 'docker compose up -d' } -Completo | Out-Host
+    if ($LASTEXITCODE -ne 0) { throw 'docker compose up -d falhou no servidor.' }
+    Write-Host 'Acesso pela internet desligado (Caddy parado). O painel volta a abrir so pelo tunel: vps.ps1 -Tunel.'
+    Write-Host 'PAINEL_DOMINIO e a senha continuam no .env; o painel segue exigindo login.'
     exit 0
 }
 

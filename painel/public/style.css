@@ -140,3 +140,53 @@ dialog .campo input{width:100%;border:1px solid #dce2d8;border-radius:6px;paddin
 .caixas-numeros{display:flex;flex-direction:column;gap:2px;grid-column:1/-1}
 .caixas-numeros .campo-marcar{margin-bottom:8px}
 .contato-numero{font-size:10px;color:#6f7d68;background:#eef1ea;border-radius:4px;padding:1px 6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex-shrink:1;min-width:0;margin-right:auto;margin-left:4px}
+
+/* ---------- login, WhatsApp, servidor e celular ---------- */
+.cabecalho{gap:12px}
+.pagina-login{min-height:100vh}
+.login-caixa{max-width:420px;min-height:100vh;margin:auto;padding:48px 18px;display:flex;flex-direction:column;justify-content:center;gap:26px}
+.login-caixa .marca{align-self:center}
+.login-cartao{margin:0}
+.login-titulo{font-size:28px;letter-spacing:-1px;margin:0 0 20px}
+.login-cartao .campo input{font-size:16px}
+.botao-largo-cheio{width:100%;min-height:46px;font-size:14px}
+.botao-perigo{background:var(--erro);color:#fff;border-color:var(--erro)}
+.botao-perigo:hover:not(:disabled){background:#842f25}
+.botao-perigo-suave{background:#fff7f4;border-color:#efcdbf;color:var(--erro)}
+.botao-perigo-suave:hover:not(:disabled){background:#fbe3dc}
+.indicadores.servidor{grid-template-columns:repeat(5,minmax(0,1fr))}
+.lista-numeros{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:18px;align-items:start;margin-bottom:26px}
+.cartao-numero{margin:0;padding:22px;display:flex;flex-direction:column;gap:14px}
+.numero-topo{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.numero-identidade{min-width:0}
+.numero-titulo{margin:0;font-size:18px;overflow-wrap:anywhere}
+.numero-sessao{display:block;font-size:11px;color:var(--suave);margin-top:2px;overflow-wrap:anywhere}
+.selo-numero{margin:0;white-space:nowrap;flex-shrink:0}
+.selo-numero[data-situacao=ok]{background:#e0eacd;color:#2f6a3f}
+.selo-numero[data-situacao=alerta]{background:#fbefd2;color:#86621a}
+.selo-numero[data-situacao=erro]{background:#fbe3dc;color:var(--erro)}
+.selo-numero[data-situacao=neutro]{background:#eceae6;color:#7a766c}
+.numero-telefone{margin:0;font-size:13px;color:var(--suave);overflow-wrap:anywhere}
+.numero-msg{margin:0;font-size:12px;color:#4a703c}
+.numero-msg.erro{color:var(--erro)}
+.qr-caixa{text-align:center;background:#fff;border:1px dashed #d6ddcc;border-radius:10px;padding:14px}
+.qr-imagem{display:block;width:100%;max-width:240px;height:auto;aspect-ratio:1;margin:0 auto;image-rendering:pixelated}
+.qr-ajuda{font-size:11px;color:var(--suave);margin:10px 0 0;line-height:1.6}
+.numero-acoes{display:flex;gap:8px;flex-wrap:wrap}
+.numero-acoes .botao{flex:1;min-width:96px;min-height:40px}
+.indicador-card[data-situacao=""]{border-left-color:#b9c6b1}
+@media(max-width:1000px){.indicadores.servidor{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:760px){
+.cabecalho{height:auto;min-height:67px;flex-wrap:wrap;padding:10px 16px;gap:8px 12px}
+.abas{order:3;width:100%}
+.abas a{flex:1;text-align:center;padding:8px 6px}
+.cabecalho .botao-pequeno{margin-left:auto}
+.abertura-conversas{display:block}
+.indicadores.servidor{grid-template-columns:repeat(2,minmax(0,1fr))}
+.lista-numeros{grid-template-columns:1fr}
+.botao,.botao-pequeno{min-height:44px}
+.cabecalho .botao-pequeno{min-height:38px}
+dialog{max-width:calc(100vw - 32px)}
+.acoes-dialogo .botao{flex:1}
+}
+@media(max-width:430px){main{padding-left:14px;padding-right:14px}.marca-leve{display:inline}.marca{font-size:16px}.cartao-numero{padding:18px 16px}.numero-acoes .botao{flex-basis:100%}}

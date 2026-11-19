@@ -6,6 +6,8 @@
 #
 # Todas as credenciais vêm do arquivo .env (gere com scripts/gerar-env.ps1).
 # WAHA, n8n e painel publicam portas somente em 127.0.0.1 (este computador).
+# Painel online (só no servidor): COMPOSE_PROFILES=online no .env liga o serviço caddy, que abre
+# as portas 80 e 443 com HTTPS na frente do painel. WAHA e n8n continuam fechados.
 
 name: chatbot-evento
 
@@ -109,9 +111,11 @@ services:
       retries: 12
       start_period: 40s
 
-  # Edição dos textos, simulação local e acompanhamento das conversas, sem acesso às
-  # credenciais do WhatsApp. Recebe só a chave da IA, para o simulador mostrar o que a IA
-  # responderia, e lê o volume de logs (conversas e erros), apagando conversas antigas.
+  # Edição dos textos, simulação local, acompanhamento das conversas e controle dos números de
+  # WhatsApp (ligar, parar, QR Code, desconectar). Por isso recebe a chave da API do WAHA
+  # (WAHA_API_KEY), além da chave da IA: quem entra no painel controla o WhatsApp. Com domínio
+  # configurado, o painel só sobe com login (PAINEL_SENHA_HASH). Lê o volume de logs (conversas
+  # e erros), apagando conversas antigas.
   painel:
     image: docker.n8n.io/n8nio/n8n:2.47.3
     restart: unless-stopped
@@ -128,8 +132,17 @@ services:
       IA_API_KEY: ${IA_API_KEY:-}
       CHATBOT_LOGS: /files/logs
       CONVERSAS_RETENCAO_DIAS: ${CONVERSAS_RETENCAO_DIAS:-7}
-      # Só a rota pública /ping, para saber se o WhatsApp (WAHA) está no ar.
+      # WAHA: /ping (situação) e a API de sessões (números, QR Code), com a chave abaixo.
       WAHA_URL: http://waha:3000
+      WAHA_API_KEY: ${WAHA_API_KEY:?Defina WAHA_API_KEY no .env}
+      # n8n: só /healthz, para mostrar a situação do servidor.
+      N8N_URL: http://n8n:5678
+      # Acesso pela internet (veja docs/vps-oracle.md). Vazios no PC: painel só em localhost, sem login.
+      PAINEL_DOMINIO: ${PAINEL_DOMINIO:-}
+      PAINEL_USUARIO: ${PAINEL_USUARIO:-admin}
+      PAINEL_SENHA_HASH: ${PAINEL_SENHA_HASH:-}
+      # true só atrás do Caddy: aí o IP do visitante vem do cabeçalho X-Forwarded-For.
+      PAINEL_CONFIAR_PROXY: ${PAINEL_CONFIAR_PROXY:-false}
     ports:
       - "127.0.0.1:${PAINEL_PORT:-8080}:8080"
     volumes:
@@ -144,6 +157,30 @@ services:
       interval: 10s
       timeout: 5s
       retries: 6
+    logging: *logging
+
+  # HTTPS na frente do painel (certificado Let's Encrypt automático). Só sobe com
+  # COMPOSE_PROFILES=online no .env do servidor (scripts\vps.ps1 -Online). Não sobe no PC.
+  # Tag 2.10-alpine: série 2.x estável, imagem multi-arquitetura (amd64 e arm64).
+  caddy:
+    image: caddy:2.10-alpine
+    profiles: ["online"]
+    restart: unless-stopped
+    depends_on:
+      painel:
+        condition: service_healthy
+    environment:
+      PAINEL_DOMINIO: ${PAINEL_DOMINIO:-}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - chatbot
     logging: *logging
 
   waha:
@@ -206,3 +243,6 @@ volumes:
   waha_sessions:
   # Logs de diagnóstico. Veja com scripts/ver-logs.ps1 (a pasta logs/ do projeto recebe as exportações).
   logs:
+  # Certificados HTTPS do Caddy (perdê-lo força emitir de novo; há limite de emissões por semana).
+  caddy_data:
+  caddy_config:

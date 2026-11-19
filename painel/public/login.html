@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Entrar · Central do evento</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/login.js" defer></script>
+</head>
+<body class="pagina-login">
+  <main class="login-caixa">
+    <a class="marca" href="/" aria-label="Central do evento"><span class="marca-icone" aria-hidden="true">C</span><span>central<span class="marca-leve">doevento</span></span></a>
+    <section class="cartao login-cartao">
+      <p class="sobretitulo">ÁREA RESTRITA</p>
+      <h1 class="login-titulo">Entrar no painel</h1>
+      <div id="login-erro" class="feedback erro" role="alert" hidden></div>
+      <form id="form-login" novalidate>
+        <label class="campo"><span>Usuário</span><input id="usuario" name="usuario" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" required autofocus></label>
+        <label class="campo"><span>Senha</span><input id="senha" name="senha" type="password" autocomplete="current-password" required></label>
+        <button id="entrar" type="submit" class="botao botao-primario botao-largo-cheio">Entrar</button>
+      </form>
+    </section>
+  </main>
+</body>
+</html>

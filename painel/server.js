@@ -4,22 +4,33 @@ const http = require('node:http');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const os = require('node:os');
 const { validarConfig } = require('../lib/configuracao');
 const Eventos = require('../lib/eventos');
 const IA = require('../lib/ia');
 const { criarRegistros } = require('./registros');
+const { criarAutenticacao } = require('./autenticacao');
+const { criarWhatsApp } = require('./whatsapp');
 
 const LIMITE_CORPO = 1024 * 1024;
 // O simulador usa a mesma cota gratuita do atendimento real: no máximo isto por hora.
 const LIMITE_IA_SIMULADOR = 30;
 const SESSAO = /^[a-zA-Z0-9_-]{1,54}$/;
 const filas = new Map();
+const LIMITE_CORPO_LOGIN = 4 * 1024;
+const ROTA_WHATSAPP = /^\/api\/whatsapp\/([^/]+)\/(iniciar|parar|desconectar|qr)$/;
+// Rotas liberadas sem sessão (método e caminho exatos). Todo o resto exige login quando ele é obrigatório.
+const ROTAS_PUBLICAS = new Set(['GET /api/health', 'POST /api/login', 'GET /api/sessao', 'GET /login', 'GET /login.js', 'GET /style.css']);
 const arquivos = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
   ['/app.js', ['app.js', 'application/javascript; charset=utf-8']],
   ['/style.css', ['style.css', 'text/css; charset=utf-8']],
   ['/conversas', ['conversas.html', 'text/html; charset=utf-8']],
-  ['/conversas.js', ['conversas.js', 'application/javascript; charset=utf-8']]
+  ['/conversas.js', ['conversas.js', 'application/javascript; charset=utf-8']],
+  ['/login', ['login.html', 'text/html; charset=utf-8']],
+  ['/login.js', ['login.js', 'application/javascript; charset=utf-8']],
+  ['/whatsapp', ['whatsapp.html', 'text/html; charset=utf-8']],
+  ['/whatsapp.js', ['whatsapp.js', 'application/javascript; charset=utf-8']]
 ]);
 // Conversas antigas são apagadas a cada hora (além de a cada "docker compose up -d").
 const INTERVALO_LIMPEZA_MS = 3600 * 1000;
@@ -46,24 +57,32 @@ async function lerConfig(configPath) {
   return { config, revisao: revisao(conteudo), avisos: validarConfig(config).avisos, conteudo };
 }
 
-async function lerCorpo(req) {
+async function lerCorpo(req, limite = LIMITE_CORPO) {
+  const textoLimite = limite === LIMITE_CORPO ? 'o limite de 1 MB' : 'o limite permitido';
   if (!/^application\/json(?:\s*;|\s*$)/i.test(req.headers['content-type'] || '')) throw erroHttp(415, 'Envie o conteúdo como application/json.');
-  if (Number(req.headers['content-length']) > LIMITE_CORPO) { req.resume(); throw erroHttp(413, 'O conteúdo excede o limite de 1 MB.'); }
+  if (Number(req.headers['content-length']) > limite) { req.resume(); throw erroHttp(413, 'O conteúdo excede ' + textoLimite + '.'); }
   const partes = [];
   let tamanho = 0;
   for await (const parte of req) {
     tamanho += parte.length;
-    if (tamanho > LIMITE_CORPO) { req.resume(); throw erroHttp(413, 'O conteúdo excede o limite de 1 MB.'); }
+    if (tamanho > limite) { req.resume(); throw erroHttp(413, 'O conteúdo excede ' + textoLimite + '.'); }
     partes.push(parte);
   }
   try { return JSON.parse(Buffer.concat(partes).toString('utf8')); }
   catch { throw erroHttp(400, 'O conteúdo enviado não é um JSON válido.'); }
 }
 
-function conferirOrigem(req, server, host, publicPort) {
+function conferirOrigem(req, server, host, publicPort, dominio) {
   const cabecalho = req.headers.host;
   let destino;
   try { destino = new URL('http://' + cabecalho); } catch { throw erroHttp(403, 'Acesso permitido somente pelo endereço local do painel.'); }
+  // Domínio público (atrás do Caddy): host igual ao domínio, porta 443 ou ausente, origem https.
+  if (dominio && cabecalho && [dominio, dominio + ':443'].includes(cabecalho.toLowerCase())) {
+    const origemDominio = req.headers.origin;
+    if (origemDominio && origemDominio !== 'https://' + dominio) throw erroHttp(403, 'A origem da solicitação não é permitida.');
+    if (req.headers['sec-fetch-site'] === 'cross-site') throw erroHttp(403, 'A origem da solicitação não é permitida.');
+    return;
+  }
   const enderecos = new Set(['localhost', '127.0.0.1', '[::1]']);
   if (host && !['0.0.0.0', '::'].includes(host)) enderecos.add(host === '::1' ? '[::1]' : host.toLowerCase());
   const portas = new Set([server.address()?.port, publicPort].filter(Boolean));
@@ -139,11 +158,37 @@ function verificadorDoWaha(wahaUrl, fetchWaha = globalThis.fetch) {
   };
 }
 
-function criarServidor({ configPath = path.join(__dirname, '../config/chatbot.json'), host = '127.0.0.1', publicPort, chaveIA = process.env.IA_API_KEY, fetchIA, logsDir = process.env.CHATBOT_LOGS, retencaoConversasDias = process.env.CONVERSAS_RETENCAO_DIAS, wahaUrl = process.env.WAHA_URL, fetchWaha, agora } = {}) {
+// Situação do n8n: GET /healthz (rota pública do n8n, sem credenciais).
+function verificadorN8n(n8nUrl, fetchN8n = globalThis.fetch) {
+  return async () => {
+    if (!n8nUrl) return false;
+    try {
+      const resposta = await fetchN8n(String(n8nUrl).replace(/\/+$/, '') + '/healthz', { signal: AbortSignal.timeout(2500) });
+      return resposta.ok;
+    } catch {
+      return false;
+    }
+  };
+}
+
+function criarServidor({ configPath = path.join(__dirname, '../config/chatbot.json'), host = '127.0.0.1', publicPort, chaveIA = process.env.IA_API_KEY, fetchIA, logsDir = process.env.CHATBOT_LOGS, retencaoConversasDias = process.env.CONVERSAS_RETENCAO_DIAS, wahaUrl = process.env.WAHA_URL, fetchWaha, agora, usuario = process.env.PAINEL_USUARIO || 'admin', senhaHash = process.env.PAINEL_SENHA_HASH, dominio = process.env.PAINEL_DOMINIO, confiarProxy = process.env.PAINEL_CONFIAR_PROXY === 'true', wahaChave = process.env.WAHA_API_KEY, n8nUrl = process.env.N8N_URL, fetchN8n, agoraMs, atrasar } = {}) {
   chaveIA = String(chaveIA ?? '').trim();
+  // Lança erro se houver domínio sem hash de senha (o painel não sobe aberto na internet sem login).
+  const auth = criarAutenticacao({ usuario, senhaHash, dominio, agora: agoraMs, atrasar });
+  const whatsapp = criarWhatsApp({ wahaUrl, chave: String(wahaChave ?? '').trim(), fetch: fetchWaha });
+  // IP do cliente: X-Forwarded-For (último valor, o que o Caddy acrescentou) só com PAINEL_CONFIAR_PROXY=true.
+  const ipDe = (req) => {
+    if (confiarProxy) {
+      const ultimo = String(req.headers['x-forwarded-for'] || '').split(',').pop().trim();
+      if (ultimo && /^[0-9a-fA-F:.]{2,45}$/.test(ultimo)) return ultimo;
+    }
+    return req.socket.remoteAddress || 'desconhecido';
+  };
+  const conexaoSegura = (req) => Boolean(auth.dominio) || String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase() === 'https';
   const usosRecentes = [];
   const registros = criarRegistros({ pasta: logsDir, retencaoDias: retencaoConversasDias, agora });
   const wahaNoAr = verificadorDoWaha(wahaUrl, fetchWaha);
+  const verificarN8n = verificadorN8n(n8nUrl, fetchN8n || fetchWaha);
   // Falhas de leitura dos logs viram uma mensagem própria (e não a do arquivo de configuração).
   const lerRegistros = (tarefa) => tarefa().catch((erro) => {
     if (erro.status) throw erro;
@@ -158,9 +203,69 @@ function criarServidor({ configPath = path.join(__dirname, '../config/chatbot.js
     res.setHeader('Referrer-Policy', 'no-referrer');
     res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
     try {
-      conferirOrigem(req, server, host, publicPort);
+      conferirOrigem(req, server, host, publicPort, auth.dominio);
       const rota = new URL(req.url, 'http://localhost').pathname;
+      const sessao = auth.obrigatorio ? auth.sessaoDe(req.headers.cookie) : null;
+      if (auth.obrigatorio && !sessao && !ROTAS_PUBLICAS.has(req.method + ' ' + rota)) {
+        if (rota.startsWith('/api/')) return responder(res, 401, { erro: 'Faça login para continuar.', loginNecessario: true });
+        res.writeHead(302, { Location: '/login' });
+        return res.end();
+      }
       if (req.method === 'GET' && rota === '/api/health') return responder(res, 200, { ok: true });
+      if (req.method === 'GET' && rota === '/api/sessao') return responder(res, 200, { logado: Boolean(sessao), usuario: sessao ? sessao.usuario : null, loginObrigatorio: auth.obrigatorio });
+      if (req.method === 'POST' && rota === '/api/login') {
+        if (!auth.obrigatorio) throw erroHttp(400, 'O login não está ativado neste painel.');
+        const dados = await lerCorpo(req, LIMITE_CORPO_LOGIN);
+        if (!objeto(dados) || typeof dados.usuario !== 'string' || typeof dados.senha !== 'string' || dados.usuario.length > 200 || dados.senha.length > 200) throw erroHttp(400, 'Informe usuário e senha.');
+        const resultado = await auth.entrar({ usuario: dados.usuario, senha: dados.senha, ip: ipDe(req) });
+        if (resultado.status === 429) {
+          res.setHeader('Retry-After', String(resultado.esperarSegundos));
+          return responder(res, 429, { erro: 'Muitas tentativas. Tente novamente em ' + Math.ceil(resultado.esperarSegundos / 60) + ' minuto(s).', esperarSegundos: resultado.esperarSegundos });
+        }
+        if (!resultado.ok) throw erroHttp(401, 'Usuário ou senha incorretos.');
+        res.setHeader('Set-Cookie', auth.cookie(resultado.token, { seguro: conexaoSegura(req) }));
+        return responder(res, 200, { ok: true, usuario: resultado.usuario });
+      }
+      if (req.method === 'POST' && rota === '/api/logout') {
+        auth.sair(req.headers.cookie);
+        res.setHeader('Set-Cookie', auth.cookie('', { seguro: conexaoSegura(req), apagar: true }));
+        return responder(res, 200, { ok: true });
+      }
+      if (req.method === 'GET' && rota === '/api/servidor') {
+        const pastaDisco = logsDir || process.cwd();
+        const [noAr, n8nNoAr, disco] = await Promise.all([wahaNoAr(), verificarN8n(), fs.statfs(pastaDisco).catch(() => null)]);
+        return responder(res, 200, {
+          whatsapp: noAr === true,
+          n8n: n8nNoAr,
+          memoria: { totalMB: Math.round(os.totalmem() / 1048576), livreMB: Math.round(os.freemem() / 1048576) },
+          disco: disco ? { totalGB: Math.round(disco.blocks * disco.bsize / 1073741824 * 10) / 10, livreGB: Math.round(disco.bavail * disco.bsize / 1073741824 * 10) / 10 } : null,
+          ligadoHa: Math.round(os.uptime())
+        });
+      }
+      if (rota === '/api/whatsapp' && req.method === 'GET') {
+        const sessoesWaha = await whatsapp.listar();
+        const { config: cfg } = await lerConfig(configPath);
+        const cadastrados = Array.isArray(cfg.numeros) ? cfg.numeros : [];
+        const lista = cadastrados.filter((n) => objeto(n) && typeof n.sessao === 'string').map((n) => {
+          const s = sessoesWaha.find((w) => w.nome === n.sessao);
+          return { nome: n.sessao, nomeAmigavel: typeof n.nome === 'string' && n.nome.trim() ? n.nome : n.sessao, status: s ? s.status : null, telefone: s ? s.telefone : '', nomePerfil: s ? s.nomePerfil : '', cadastrado: true, noWaha: Boolean(s) };
+        });
+        for (const s of sessoesWaha) if (!lista.some((n) => n.nome === s.nome)) lista.push({ nome: s.nome, nomeAmigavel: s.nome, status: s.status, telefone: s.telefone, nomePerfil: s.nomePerfil, cadastrado: false, noWaha: true });
+        return responder(res, 200, { numeros: lista });
+      }
+      const acaoWhatsapp = ROTA_WHATSAPP.exec(rota);
+      if (acaoWhatsapp && (acaoWhatsapp[2] === 'qr' ? req.method === 'GET' : req.method === 'POST')) {
+        let nome = '';
+        try { nome = decodeURIComponent(acaoWhatsapp[1]); } catch {}
+        if (!SESSAO.test(nome)) throw erroHttp(400, 'Nome de número inválido.');
+        const acao = acaoWhatsapp[2];
+        if (acao === 'qr') return responder(res, 200, await whatsapp.qr(nome));
+        if (acao === 'iniciar') return responder(res, 200, { ok: true, ...(await whatsapp.iniciar(nome)) });
+        if (acao === 'parar') return responder(res, 200, await whatsapp.parar(nome));
+        const dados = await lerCorpo(req, LIMITE_CORPO_LOGIN);
+        if (!objeto(dados) || dados.confirmar !== true) throw erroHttp(400, 'Confirme a desconexão enviando {"confirmar": true}.');
+        return responder(res, 200, await whatsapp.desconectar(nome));
+      }
       // Só informa se existe chave e de qual provedor ela parece ser; a chave nunca sai daqui.
       if (req.method === 'GET' && rota === '/api/ia') return responder(res, 200, { chaveConfigurada: Boolean(chaveIA), provedorDaChave: IA.provedorDaChave(chaveIA) || undefined });
       if (req.method === 'GET' && rota === '/api/config') {
@@ -203,7 +308,9 @@ function criarServidor({ configPath = path.join(__dirname, '../config/chatbot.js
       if (req.method === 'GET' && rota === '/api/erros') return responder(res, 200, { erros: await lerRegistros(() => registros.erros()) });
       if (req.method === 'GET' && arquivos.has(rota)) {
         const [nome, tipo] = arquivos.get(rota);
-        const conteudo = await fs.readFile(path.join(__dirname, 'public', nome));
+        let conteudo;
+        try { conteudo = await fs.readFile(path.join(__dirname, 'public', nome)); }
+        catch (erro) { if (erro.code === 'ENOENT') return responder(res, 404, { erro: 'Página não encontrada.' }); throw erro; }
         res.writeHead(200, { 'Content-Type': tipo });
         return res.end(conteudo);
       }
@@ -236,9 +343,13 @@ if (require.main === module) {
     console.error('PAINEL_PORT precisa ser uma porta entre 1 e 65535.');
     process.exitCode = 1;
   } else {
-    const server = criarServidor({ configPath: process.env.CHATBOT_CONFIG, host, publicPort: process.env.PAINEL_PUBLIC_PORT });
-    server.on('error', () => { console.error('Não foi possível iniciar o painel. Confira o endereço e se a porta está livre.'); process.exitCode = 1; });
-    server.listen(port, host, () => console.log('Painel local disponível em http://127.0.0.1:' + port));
+    let server;
+    try { server = criarServidor({ configPath: process.env.CHATBOT_CONFIG, host, publicPort: process.env.PAINEL_PUBLIC_PORT }); }
+    catch (erro) { console.error('Não foi possível iniciar o painel: ' + erro.message); process.exitCode = 1; }
+    if (server) {
+      server.on('error', () => { console.error('Não foi possível iniciar o painel. Confira o endereço e se a porta está livre.'); process.exitCode = 1; });
+      server.listen(port, host, () => console.log('Painel local disponível em http://127.0.0.1:' + port));
+    }
   }
 }
 

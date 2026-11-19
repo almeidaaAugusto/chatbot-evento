@@ -73,6 +73,7 @@ function elemento(tag, classe, texto) {
 
 async function api(rota) {
   const resposta = await fetch(rota, { headers: { Accept: 'application/json' } });
+  if (resposta.status === 401) { location.href = '/login'; throw new Error('Sessão expirada. Entre novamente.'); }
   let dados = {};
   try { dados = await resposta.json(); } catch { dados = {}; }
   if (!resposta.ok) throw new Error(dados.erro || 'O painel não respondeu (HTTP ' + resposta.status + ').');
@@ -514,3 +515,21 @@ function iniciar() {
 }
 
 iniciar();
+
+// Mostra o botão "Sair" quando o login é obrigatório e trata o logout.
+async function prepararSair() {
+  const botao = document.getElementById('botao-sair');
+  if (!botao) return;
+  try {
+    const r = await fetch('/api/sessao', { headers: { Accept: 'application/json' } });
+    const s = await r.json();
+    if (!s.loginObrigatorio) return;
+    botao.hidden = false;
+    botao.addEventListener('click', async () => {
+      botao.disabled = true;
+      try { await fetch('/api/logout', { method: 'POST' }); } catch { /* segue para o login mesmo assim */ }
+      location.href = '/login';
+    });
+  } catch { /* sem sessão ou painel fora: o botão fica escondido */ }
+}
+prepararSair();

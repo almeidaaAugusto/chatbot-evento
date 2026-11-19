@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>WhatsApp · Central do evento</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/whatsapp.js" defer></script>
+</head>
+<body class="pagina-conversas pagina-whatsapp">
+  <a class="pular" href="#numeros">Pular para o conteúdo</a>
+  <header class="cabecalho">
+    <a class="marca" href="/" aria-label="Central do evento, início"><span class="marca-icone" aria-hidden="true">C</span><span>central<span class="marca-leve">doevento</span></span></a>
+    <nav class="abas" aria-label="Páginas do painel"><a href="/">Respostas</a><a href="/conversas">Conversas</a><a href="/whatsapp" aria-current="page">WhatsApp</a></nav>
+    <span class="status-local"><span aria-hidden="true"></span>Painel</span>
+    <button type="button" id="botao-sair" class="botao botao-secundario botao-pequeno" hidden>Sair</button>
+  </header>
+  <main>
+    <div class="abertura abertura-conversas">
+      <div><p class="sobretitulo">CONEXÃO COM O WHATSAPP</p><h1>WhatsApp</h1><p class="introducao">Veja os números, ligue, pare e conecte por QR Code.<br class="desktop"> Atualiza sozinho a cada 10 segundos.</p></div>
+      <p id="atualizado" class="atualizado" role="status" aria-live="polite">Carregando…</p>
+    </div>
+    <section class="indicadores servidor" aria-label="Servidor">
+      <div id="srv-whatsapp" class="indicador-card"><span>WHATSAPP (WAHA)</span><strong>…</strong><small></small></div>
+      <div id="srv-n8n" class="indicador-card"><span>N8N</span><strong>…</strong><small></small></div>
+      <div id="srv-memoria" class="indicador-card"><span>MEMÓRIA</span><strong>…</strong><small></small></div>
+      <div id="srv-disco" class="indicador-card"><span>DISCO</span><strong>…</strong><small></small></div>
+      <div id="srv-ligado" class="indicador-card"><span>LIGADO HÁ</span><strong>…</strong><small></small></div>
+    </section>
+    <div id="aviso" class="feedback erro" role="alert" hidden></div>
+    <section id="numeros" class="lista-numeros" aria-label="Números de WhatsApp"></section>
+    <p id="vazio-numeros" class="vazio" hidden>Nenhum número cadastrado ainda.</p>
+  </main>
+  <dialog id="confirmar-desconectar" aria-labelledby="titulo-desconectar">
+    <form method="dialog">
+      <h2 id="titulo-desconectar">Desconectar este número?</h2>
+      <p id="texto-desconectar"></p>
+      <div class="acoes-dialogo">
+        <button value="cancelar" class="botao botao-secundario">Cancelar</button>
+        <button value="desconectar" class="botao botao-perigo">Desconectar</button>
+      </div>
+    </form>
+  </dialog>
+</body>
+</html>
