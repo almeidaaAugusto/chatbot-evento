@@ -1,4 +1,4 @@
-# Administra o chatbot rodando na VPS (Oracle) a partir deste computador. Guia: docs\vps-oracle.md
+# Administra o chatbot rodando na VPS (Oracle) a partir deste computador.
 #
 #   powershell -ExecutionPolicy Bypass -File scripts\vps.ps1 <acao>
 #

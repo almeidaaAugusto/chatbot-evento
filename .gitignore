@@ -26,3 +26,8 @@ backups/
 
 # Configuracao real (promoters e telefones): fora do git; o modelo e config/chatbot.exemplo.json
 config/chatbot.json
+
+# Documentacao interna: repositorio privado chatbot-evento-docs, clonado em docs/.
+# O CLAUDE.md da raiz e local e so importa docs/CLAUDE.md.
+/docs/
+/CLAUDE.md

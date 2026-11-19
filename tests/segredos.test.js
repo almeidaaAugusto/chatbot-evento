@@ -173,6 +173,10 @@ function varrer() {
     if (rel === 'config/chatbot.json') {
       achados.push({ categoria: 'config-versionado', arquivo: rel, linha: 0, tipo: 'config/chatbot.json (usar config/chatbot.exemplo.json)' });
     }
+    // Documentação interna (docs/ e CLAUDE.md) vive no repositório privado chatbot-evento-docs.
+    if (rel === 'CLAUDE.md' || rel.startsWith('docs/')) {
+      achados.push({ categoria: 'docs-versionado', arquivo: rel, linha: 0, tipo: 'documentação interna (vai no repositório privado de docs)' });
+    }
     if (rel === ESTE_ARQUIVO || !ehEscaneavel(rel)) continue;
     let texto;
     try {
@@ -236,6 +240,10 @@ test('arquivo .env nao esta versionado', () => {
 
 test('config/chatbot.json nao esta versionado', () => {
   afirmarSemAchados('config-versionado', 'config/chatbot.json versionado');
+});
+
+test('documentacao interna (docs/ e CLAUDE.md) nao esta versionada no repositorio publico', () => {
+  afirmarSemAchados('docs-versionado', 'documentação interna versionada');
 });
 
 test('padroes de deteccao acertam e erram nos casos sinteticos', () => {

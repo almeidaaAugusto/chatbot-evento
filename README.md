@@ -30,10 +30,6 @@ docker compose up -d
 Detalhes em "Primeira instalação em outro computador". O repositório usa dados de exemplo; os
 dados reais (configuração, chaves, endereço do servidor) ficam fora dele.
 
-> **Documentação do projeto:** contexto, arquitetura, decisões, operação e solução de problemas
-> estão em [docs/README.md](docs/README.md) e no [CLAUDE.md](CLAUDE.md). Este README é o guia de
-> uso.
-
 ```
 WhatsApp  ->  WAHA  --webhook-->  n8n  (identifica a mensagem, consulta o Redis)
                                    n8n  --(só se não entendeu)-->  API de IA (Groq)
@@ -64,8 +60,7 @@ No PC, as portas são publicadas somente em `127.0.0.1`: nada fica acessível pe
 ## Comandos do dia a dia
 
 > Os comandos desta seção e das seguintes valem para a stack **no computador onde ela roda**.
-> Em produção isso é a VPS: no PC use `scripts\vps.ps1 -Script <nome>` (veja "Rodar na VPS" e
-> [docs/operacao.md](docs/operacao.md)). **Não suba a stack real no PC**: dois robôs no mesmo
+> Em produção isso é a VPS: no PC use `scripts\vps.ps1 -Script <nome>` (veja "Rodar na VPS"). **Não suba a stack real no PC**: dois robôs no mesmo
 > número respondem em dobro.
 
 Abra um terminal na pasta do projeto (`chatbot-evento`).
@@ -103,7 +98,7 @@ O `gerar-env.ps1` cria o `.env` com chaves aleatórias. Na primeira subida o ser
 ## Rodar na VPS (Oracle)
 
 O robô pode rodar 24 horas numa VM gratuita da Oracle Cloud, sem depender deste computador.
-O passo a passo para iniciantes está em [docs/vps-oracle.md](docs/vps-oracle.md). Resumo:
+Resumo:
 
 - Crie a VM (Ubuntu 24.04, ARM, 2 OCPU e 12 GB), converta a conta para Pay As You Go e crie um alerta de orçamento.
 - `powershell -ExecutionPolicy Bypass -File scripts\vps.ps1 -Configurar -Servidor <IP>` e depois `-Instalar` preparam o servidor (uma vez).
@@ -128,7 +123,6 @@ powershell -ExecutionPolicy Bypass -File scripts\vps.ps1 -Online -Dominio 203-0-
 - `-Online` libera 80/443 no firewall do servidor, grava `PAINEL_DOMINIO`, `COMPOSE_PROFILES=online` e `PAINEL_CONFIAR_PROXY=true` no `.env` do servidor, sobe o Caddy e testa o endereço. Para trocar de domínio, rode de novo com outro `-Dominio`.
 - `-OnlineDesligar` para o Caddy e volta ao acesso só por túnel.
 
-Detalhes, cuidados e solução de problemas: [docs/vps-oracle.md](docs/vps-oracle.md), seção 10.
 
 ## Conectar o WhatsApp
 
@@ -622,7 +616,7 @@ gravando os arquivos de log, e o painel copia para o banco a cada 5 segundos.
   Os arquivos de log seguem com a retenção antiga (`CONVERSAS_RETENCAO_DIAS`, 7 dias).
 - **Backup automático:** o serviço `backup-banco` faz um dump todo dia às 04:00 e mantém os 14
   mais recentes no volume `backups_banco`. Na VPS, `scripts\vps.ps1 -Backup` baixa o mais recente.
-- **Restauração:** passo a passo em [docs/vps-oracle.md](docs/vps-oracle.md), seção 11.
+- **Restauração:** envie o dump ao servidor e rode `cat ~/chatbot.dump | docker compose exec -T postgres pg_restore -U chatbot -d chatbot --clean --if-exists --no-owner`.
 - **Saúde:** `docker compose ps -a` (o `postgres` deve estar `healthy`) ou
   `docker compose exec postgres pg_isready -U chatbot -d chatbot`.
 - **Porta não aberta:** o banco só responde na rede interna do Docker. A porta 5432 nunca deve

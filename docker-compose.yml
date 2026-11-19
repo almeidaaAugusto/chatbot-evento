@@ -134,7 +134,7 @@ services:
     logging: *logging
 
   # Backup diário do banco às 04:00 (fuso FUSO_HORARIO): pg_dump -Fc em /backups, mantendo os 14 mais recentes.
-  # Restaurar: veja docs/vps-oracle.md. O $$ evita que o compose interprete as variáveis do shell.
+  # Restaurar: pg_restore do dump (veja "Banco de dados" no README). O $$ evita que o compose interprete as variáveis do shell.
   backup-banco:
     image: postgres:17-alpine
     restart: unless-stopped
@@ -207,7 +207,7 @@ services:
       WAHA_API_KEY: ${WAHA_API_KEY:?Defina WAHA_API_KEY no .env}
       # n8n: só /healthz, para mostrar a situação do servidor.
       N8N_URL: http://n8n:5678
-      # Acesso pela internet (veja docs/vps-oracle.md). Vazios no PC: painel só em localhost, sem login.
+      # Acesso pela internet (veja "Painel online" no README). Vazios no PC: painel só em localhost, sem login.
       PAINEL_DOMINIO: ${PAINEL_DOMINIO:-}
       PAINEL_USUARIO: ${PAINEL_USUARIO:-admin}
       PAINEL_SENHA_HASH: ${PAINEL_SENHA_HASH:-}

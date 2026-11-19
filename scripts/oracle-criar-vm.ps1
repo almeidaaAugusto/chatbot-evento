@@ -9,12 +9,12 @@
 #   ... -Intervalo 120                segundos entre tentativas (padrao 90)
 #   ... -MaxTentativas 500            desiste depois de N tentativas (padrao 0 = sem limite)
 #
-# Pre-requisitos (veja docs\vps-oracle.md, secao "Criar a VM automaticamente"):
+# Pre-requisitos:
 #   - OCI CLI instalado:            python -m uv tool install --python 3.12 oci-cli
 #                                   (pip no Python 3.14 falha ao compilar o PyYAML)
 #   - Chave de API em ~\.oci\config (Console > Meu perfil > Chaves de API)
 #   - Uma rede com sub-rede PUBLICA, Internet Gateway e rota 0.0.0.0/0 (o Start VCN Wizard
-#     pode deixar a rede incompleta: confira; veja docs\solucao-de-problemas.md)
+#     pode deixar a rede incompleta: confira)
 #   - Chave SSH em ~\.ssh\oracle_chatbot.pub
 param(
     [int]$Ocpus = 1,
@@ -55,7 +55,7 @@ if (-not (Get-Command oci -ErrorAction SilentlyContinue)) {
 }
 $arquivoConfig = Join-Path $env:USERPROFILE '.oci\config'
 if (-not (Test-Path -LiteralPath $arquivoConfig)) {
-    throw "Arquivo $arquivoConfig nao encontrado. Crie a chave de API (docs\vps-oracle.md, secao 'Criar a VM automaticamente')."
+    throw "Arquivo $arquivoConfig nao encontrado. Crie a chave de API no console da Oracle (Meu perfil > Chaves de API)."
 }
 if (-not (Test-Path -LiteralPath $ChaveSsh)) { throw "Chave SSH publica nao encontrada: $ChaveSsh" }
 
