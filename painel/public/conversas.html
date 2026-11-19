@@ -12,7 +12,7 @@
   <a class="pular" href="#conversas">Pular para o conteúdo</a>
   <header class="cabecalho">
     <a class="marca" href="/" aria-label="Central do evento, início"><span class="marca-icone" aria-hidden="true">C</span><span>central<span class="marca-leve">doevento</span></span></a>
-    <nav class="abas" aria-label="Páginas do painel"><a href="/">Respostas</a><a href="/conversas" aria-current="page">Conversas</a><a href="/whatsapp">WhatsApp</a></nav>
+    <nav class="abas" aria-label="Páginas do painel"><a href="/">Configuração</a><a href="/conversas" aria-current="page">Conversas</a><a href="/metricas">Métricas</a><a href="/whatsapp">WhatsApp</a><a href="/usuarios" id="aba-usuarios" hidden>Usuários</a></nav>
     <span class="status-local"><span aria-hidden="true"></span>Painel</span>
     <button type="button" id="botao-sair" class="botao botao-secundario botao-pequeno" hidden>Sair</button>
   </header>
@@ -28,6 +28,34 @@
       <a id="card-erros" class="indicador-card" href="#erros"><span>ERROS</span><strong id="total-erros">–</strong><small id="erros-detalhe"></small></a>
     </section>
     <div id="aviso" class="feedback erro" role="alert" hidden></div>
+    <p id="h-aviso" class="feedback erro" role="status" hidden></p>
+    <div id="seletor-modo" class="seletor-modo" role="group" aria-label="Fonte das conversas" hidden>
+      <button type="button" data-modo="historico" aria-pressed="true">Histórico completo</button>
+      <button type="button" data-modo="vivo" aria-pressed="false">Ao vivo (arquivos recentes)</button>
+    </div>
+    <section id="historico-banco" class="painel-conversas" aria-label="Histórico de conversas" hidden>
+      <div class="lista-contatos">
+        <form id="h-filtros" class="filtros-historico">
+          <label class="campo-filtro" for="h-de"><span>De</span><input id="h-de" type="date"></label>
+          <label class="campo-filtro" for="h-ate"><span>Até</span><input id="h-ate" type="date"></label>
+          <label class="campo-filtro campo-filtro-busca" for="h-busca"><span>Buscar</span><input id="h-busca" type="search" placeholder="Nome, número ou texto" autocomplete="off"></label>
+          <button type="submit" class="botao botao-primario botao-pequeno">Buscar</button>
+        </form>
+        <ul id="h-lista" class="contatos" aria-label="Mensagens do histórico"></ul>
+        <p id="h-vazio" class="vazio" hidden>Nenhuma mensagem encontrada neste período.</p>
+        <div class="h-mais"><button type="button" id="h-mais" class="botao botao-secundario botao-pequeno" hidden>Carregar mais</button></div>
+      </div>
+      <div class="conversa conversa-detalhe">
+        <div class="conversa-cabecalho">
+          <button id="h-voltar" class="botao-voltar" type="button" aria-label="Voltar para a lista">←</button>
+          <span id="h-avatar" class="avatar" aria-hidden="true">✳</span>
+          <div class="contato-info"><strong id="h-nome">Escolha uma mensagem</strong><small id="h-numero">A conversa inteira aparece aqui</small></div>
+        </div>
+        <div id="h-mensagens" class="historico historico-real" role="log" aria-label="Conversa completa">
+          <div class="inicio-conversa"><span aria-hidden="true">✉</span><p>Clique em uma mensagem da lista.</p><small>Você verá a conversa inteira desse contato.</small></div>
+        </div>
+      </div>
+    </section>
     <section id="conversas" class="painel-conversas" aria-label="Conversas">
       <div class="lista-contatos">
         <div class="filtros">

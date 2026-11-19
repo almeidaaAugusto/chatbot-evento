@@ -26,6 +26,8 @@ WhatsApp  <-  WAHA  <--API-----  n8n  (envia a resposta)
 | `waha` (WAHA 2026.10.1, engine GOWS) | Liga o WhatsApp à automação | http://localhost:3000/dashboard |
 | `n8n` (2.47.3) | Executa o workflow do chatbot | http://localhost:5678 |
 | `redis` (8) | Guarda o estado: mensagens já vistas, limites, contatos em atendimento humano | só na rede interna |
+| `postgres` (17) | Guarda o histórico de conversas e eventos, as versões da configuração, os usuários do painel e a página Métricas (seção "Banco de dados") | só na rede interna |
+| `backup-banco` | Faz o backup diário do banco (04:00) e mantém os 14 mais recentes | volume `backups_banco` |
 | `painel` | Edita o conteúdo, simula conversas e mostra as conversas reais e os erros | http://localhost:8080 (conversas em http://localhost:8080/conversas) |
 | `caddy` (2.10, perfil `online`) | HTTPS na frente do painel; só sobe no servidor com `COMPOSE_PROFILES=online` (veja "Painel online") | portas 80 e 443 do servidor |
 | `n8n-init`, `preparar-logs` | Rodam uma vez a cada subida e terminam (aparecem como `Exited (0)`) | — |
@@ -42,6 +44,7 @@ Abra um terminal na pasta do projeto (`chatbot-evento`).
 | Parar (os dados ficam guardados) | `docker compose down` |
 | Reiniciar | `docker compose restart` |
 | Ver a situação dos contêineres | `docker compose ps -a` |
+| Ver se o banco está saudável (`postgres` em `healthy`) | `docker compose ps -a` |
 | Acompanhar as conversas e os erros | http://localhost:8080/conversas |
 | Ver o que o robô fez (sem o texto das mensagens) | `powershell -ExecutionPolicy Bypass -File scripts\ver-logs.ps1` |
 | Ver erros | `powershell -ExecutionPolicy Bypass -File scripts\ver-logs.ps1 -Erros` |
@@ -562,6 +565,11 @@ mensagens daquele contato.
 | Execuções do n8n com sucesso | não são gravadas | arquivos temporários somem em até 5 minutos |
 | Execuções do n8n com erro (**contêm a mensagem e o número do contato**, para diagnóstico) | banco do n8n | 7 dias |
 | Sessão do WhatsApp e dados de conversas que o WAHA guarda para funcionar | volume `waha_sessions` | Até desconectar |
+| Mensagens das conversas e eventos do bot (no Postgres, pesquisáveis; telefone como chega) | volume `postgres_data` | 180 dias (`HISTORICO_RETENCAO_DIAS`) |
+| Registros e erros do bot (no Postgres) | volume `postgres_data` | 90 dias |
+| Versões da configuração (quem e quando salvou; permite restaurar) | volume `postgres_data` | Sem expiração automática |
+| Usuários do painel e sessões de login | volume `postgres_data` | Até o admin remover o usuário; sessões enquanto válidas |
+| Dumps de backup do banco (`chatbot-AAAAMMDD-HHMM.dump`) | volume `backups_banco` | Os 14 mais recentes (um por dia, às 04:00) |
 | Logs dos contêineres | Docker | 3 arquivos de 10 MB por serviço |
 
 Apagar:
@@ -571,6 +579,25 @@ powershell -ExecutionPolicy Bypass -File scripts\limpar-dados.ps1 -Logs      # l
 powershell -ExecutionPolicy Bypass -File scripts\limpar-dados.ps1 -Estado    # estado do robô no Redis
 powershell -ExecutionPolicy Bypass -File scripts\limpar-dados.ps1 -Tudo      # tudo, inclusive o pareamento do WhatsApp
 ```
+
+## Banco de dados
+
+O serviço `postgres` (PostgreSQL 17) guarda o histórico de conversas e eventos do bot, para
+consulta, as versões da configuração (quem e quando salvou, com restauração), os usuários do
+painel com papéis (admin, editor e leitor) e os dados da página Métricas. O n8n continua
+gravando os arquivos de log, e o painel copia para o banco a cada 5 segundos.
+
+- **Retenção:** mensagens por 180 dias (`HISTORICO_RETENCAO_DIAS`); registros e erros por 90 dias.
+  Os arquivos de log seguem com a retenção antiga (`CONVERSAS_RETENCAO_DIAS`, 7 dias).
+- **Backup automático:** o serviço `backup-banco` faz um dump todo dia às 04:00 e mantém os 14
+  mais recentes no volume `backups_banco`. Na VPS, `scripts\vps.ps1 -Backup` baixa o mais recente.
+- **Restauração:** passo a passo em [docs/vps-oracle.md](docs/vps-oracle.md), seção 11.
+- **Saúde:** `docker compose ps -a` (o `postgres` deve estar `healthy`) ou
+  `docker compose exec postgres pg_isready -U chatbot -d chatbot`.
+- **Porta não aberta:** o banco só responde na rede interna do Docker. A porta 5432 nunca deve
+  ser publicada.
+- **O bot não depende do banco:** se ele cair, o bot segue respondendo e o painel mostra
+  "banco indisponível".
 
 ## Testes
 
@@ -623,6 +650,7 @@ chatbot-evento/
   config/chatbot.json         TEXTOS, PALAVRAS-CHAVE E LIMITES (edite aqui)
   painel/                     painel local (editor e página Conversas), servidor HTTP, leitura dos
                               registros (registros.js) e configurar-ia.js (usado pelo script)
+  painel/Dockerfile           imagem do painel (node:22-alpine)
   lib/                        motor de conversa (conversa.js), vários eventos (eventos.js), assistente de IA (ia.js) e validador
   n8n/
     n8n.env                   configurações não secretas do n8n

@@ -111,18 +111,85 @@ services:
       retries: 12
       start_period: 40s
 
+  # Banco de dados: histórico de conversas, versões da configuração e usuários do painel.
+  # Sem portas publicadas (só a rede interna do Docker). O bot não depende dele.
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      TZ: ${FUSO_HORARIO:-America/Sao_Paulo}
+      POSTGRES_DB: chatbot
+      POSTGRES_USER: chatbot
+      POSTGRES_PASSWORD: ${POSTGRES_SENHA:?Defina POSTGRES_SENHA no .env (rode scripts/gerar-env.ps1)}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - chatbot
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chatbot -d chatbot"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+    logging: *logging
+
+  # Backup diário do banco às 04:00 (fuso FUSO_HORARIO): pg_dump -Fc em /backups, mantendo os 14 mais recentes.
+  # Restaurar: veja docs/vps-oracle.md. O $$ evita que o compose interprete as variáveis do shell.
+  backup-banco:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      TZ: ${FUSO_HORARIO:-America/Sao_Paulo}
+      PGPASSWORD: ${POSTGRES_SENHA:?Defina POSTGRES_SENHA no .env (rode scripts/gerar-env.ps1)}
+    entrypoint:
+      - sh
+      - -c
+      - |
+        # A imagem alpine pode não ter os fusos horários; tenta instalar (sem internet, segue em UTC).
+        [ -e "/usr/share/zoneinfo/$$TZ" ] || apk add --no-cache tzdata >/dev/null 2>&1 || true
+        echo "backup-banco: dump diário às 04:00 ($$TZ), mantendo os 14 mais recentes"
+        while true; do
+          h=$$(date +%H); m=$$(date +%M); s=$$(date +%S)
+          h=$${h#0}; m=$${m#0}; s=$${s#0}
+          espera=$$(( 4*3600 - (h*3600 + m*60 + s) ))
+          [ "$$espera" -le 0 ] && espera=$$(( espera + 86400 ))
+          sleep "$$espera"
+          arq=/backups/chatbot-$$(date +%Y%m%d-%H%M).dump
+          if pg_dump -Fc -h postgres -U chatbot chatbot > "$$arq.tmp"; then
+            mv "$$arq.tmp" "$$arq"
+            echo "backup-banco: gravado $$arq"
+            ls -1t /backups/chatbot-*.dump | tail -n +15 | xargs -r rm -f
+          else
+            rm -f "$$arq.tmp"
+            echo "backup-banco: FALHOU o pg_dump" >&2
+          fi
+          sleep 60
+        done
+    volumes:
+      - backups_banco:/backups
+    networks:
+      - chatbot
+    logging: *logging
+
   # Edição dos textos, simulação local, acompanhamento das conversas e controle dos números de
   # WhatsApp (ligar, parar, QR Code, desconectar). Por isso recebe a chave da API do WAHA
   # (WAHA_API_KEY), além da chave da IA: quem entra no painel controla o WhatsApp. Com domínio
   # configurado, o painel só sobe com login (PAINEL_SENHA_HASH). Lê o volume de logs (conversas
   # e erros), apagando conversas antigas.
   painel:
-    image: docker.n8n.io/n8nio/n8n:2.47.3
+    # Imagem própria (painel/Dockerfile): o código vai dentro da imagem, então o
+    # scripts\vps.ps1 -Enviar reconstrói com "docker compose up -d --build".
+    build:
+      context: ./painel
+    image: chatbot-evento-painel:local
     restart: unless-stopped
+    # Sem depends_on do postgres de propósito: o painel sobe mesmo sem banco e reconecta sozinho.
     depends_on:
       preparar-logs:
         condition: service_completed_successfully
-    entrypoint: ["node", "/app/painel/server.js"]
     environment:
       TZ: ${FUSO_HORARIO:-America/Sao_Paulo}
       PAINEL_HOST: 0.0.0.0
@@ -132,6 +199,9 @@ services:
       IA_API_KEY: ${IA_API_KEY:-}
       CHATBOT_LOGS: /files/logs
       CONVERSAS_RETENCAO_DIAS: ${CONVERSAS_RETENCAO_DIAS:-7}
+      # Banco (histórico, versões da configuração, usuários). Só na rede interna; sem porta publicada.
+      DATABASE_URL: postgres://chatbot:${POSTGRES_SENHA:?Defina POSTGRES_SENHA no .env (rode scripts/gerar-env.ps1)}@postgres:5432/chatbot
+      HISTORICO_RETENCAO_DIAS: ${HISTORICO_RETENCAO_DIAS:-180}
       # WAHA: /ping (situação) e a API de sessões (números, QR Code), com a chave abaixo.
       WAHA_URL: http://waha:3000
       WAHA_API_KEY: ${WAHA_API_KEY:?Defina WAHA_API_KEY no .env}
@@ -146,7 +216,6 @@ services:
     ports:
       - "127.0.0.1:${PAINEL_PORT:-8080}:8080"
     volumes:
-      - ./painel:/app/painel:ro
       - ./lib:/app/lib:ro
       - ./config:/files/config
       - logs:/files/logs
@@ -240,6 +309,9 @@ networks:
 volumes:
   redis_data:
   n8n_data:
+  # Banco do painel (histórico, versões da configuração, usuários) e seus dumps diários.
+  postgres_data:
+  backups_banco:
   waha_sessions:
   # Logs de diagnóstico. Veja com scripts/ver-logs.ps1 (a pasta logs/ do projeto recebe as exportações).
   logs:

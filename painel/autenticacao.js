@@ -1,6 +1,8 @@
 'use strict';
 
-// Login do painel: senha com hash scrypt, sessões em memória e proteção contra força bruta.
+// Login do painel: senha com hash scrypt e proteção contra força bruta (em memória).
+// Com banco disponível, usuários e sessões ficam no Postgres. Sem banco, vale o usuário do .env
+// (PAINEL_USUARIO/PAINEL_SENHA_HASH) como reserva, com sessões em memória e papel admin.
 // Formato do hash (sem "$", que o docker compose interpolaria no .env):
 //   scrypt:N:r:p:salHex:hashHex   (N=16384, r=8, p=1, sal de 16 bytes, hash de 64 bytes)
 
@@ -67,7 +69,8 @@ function lerCookie(cabecalho, nome = NOME_COOKIE) {
   return '';
 }
 
-function criarAutenticacao({ usuario = 'admin', senhaHash = '', dominio = '', agora = () => Date.now(), atrasar = dormir } = {}) {
+// "repositorio" é opcional: objeto com disponivel(), usuarios e sessoes (ver painel/db/repositorio.js).
+function criarAutenticacao({ usuario = 'admin', senhaHash = '', dominio = '', agora = () => Date.now(), atrasar = dormir, repositorio = null } = {}) {
   senhaHash = String(senhaHash || '').trim();
   dominio = String(dominio || '').trim().toLowerCase();
   usuario = String(usuario || 'admin').trim() || 'admin';
@@ -75,11 +78,14 @@ function criarAutenticacao({ usuario = 'admin', senhaHash = '', dominio = '', ag
   if (dominio && !senhaHash) throw new Error('PAINEL_DOMINIO está definida mas PAINEL_SENHA_HASH não. O painel não sobe aberto na internet sem senha. Gere o hash com: node painel/senha.js');
   if (senhaHash && !lerHash(senhaHash)) throw new Error('PAINEL_SENHA_HASH está em formato inválido. Gere de novo com: node painel/senha.js');
   const obrigatorio = Boolean(senhaHash);
-  const sessoes = new Map(); // sha256(token) em hex -> { usuario, criada, ultimoUso }
+  const sessoes = new Map(); // reserva em memória: sha256(token) em hex -> { usuario, criada, ultimoUso }
   const falhasPorIp = new Map(); // ip -> { falhas: [momentos], bloqueadoAte }
   let falhasGlobais = [];
 
   const chaveDe = (token) => sha256(token).toString('hex');
+  const comBanco = () => Boolean(repositorio) && repositorio.disponivel();
+  // Falha de banco no meio de uma operação vira "sem banco" (usa a reserva); outros erros sobem.
+  const tolerar = (erro) => { if (erro && erro.bancoIndisponivel) return null; throw erro; };
 
   function limparSessoes() {
     const agoraMs = agora();
@@ -106,15 +112,47 @@ function criarAutenticacao({ usuario = 'admin', senhaHash = '', dominio = '', ag
     falhasPorIp.set(ip, e);
   }
 
-  // Resultado: { ok: true, token } | { ok: false, status: 401 } | { ok: false, status: 429, esperarSegundos }
+  // Procura o usuário no banco. Devolve { usado: false } se o banco não puder decidir (fora do ar
+  // ou ainda sem nenhum usuário), caso em que vale o login do .env.
+  async function buscarNoBanco(informado) {
+    if (!comBanco()) return { usado: false };
+    try {
+      const conta = await repositorio.usuarios.porNome(informado);
+      if (!conta && (await repositorio.usuarios.contar()) === 0) return { usado: false };
+      return { usado: true, conta };
+    } catch (erro) { tolerar(erro); return { usado: false }; }
+  }
+
+  // Resultado: { ok: true, token, usuario, papel } | { ok: false, status: 401 } | { ok: false, status: 429, esperarSegundos }
   async function entrar({ usuario: informado, senha, ip }) {
     ip = String(ip || 'desconhecido');
     limparFalhas();
     const registro = falhasPorIp.get(ip);
     if (registro && registro.bloqueadoAte > agora()) return { ok: false, status: 429, esperarSegundos: Math.ceil((registro.bloqueadoAte - agora()) / 1000) };
     if (falhasGlobais.length >= FALHAS_GLOBAIS) await atrasar(ATRASO_GLOBAL_MS);
+    const noBanco = await buscarNoBanco(informado);
+    const token = crypto.randomBytes(32).toString('hex');
+    const agoraMs = agora();
+    if (noBanco.usado) {
+      const conta = noBanco.conta && noBanco.conta.ativo ? noBanco.conta : null;
+      // A senha é sempre conferida (contra o hash falso se o usuário não vale), para o tempo ser parecido.
+      const senhaCerta = verificarSenha(senha, conta ? conta.senhaHash : HASH_FALSO);
+      if (!conta || !senhaCerta) {
+        registrarFalha(ip);
+        return { ok: false, status: 401 };
+      }
+      try {
+        await repositorio.sessoes.criar({ idHash: chaveDe(token), usuarioId: conta.id, ip, criadaEm: new Date(agoraMs) });
+        await repositorio.usuarios.registrarLogin(conta.id, new Date(agoraMs));
+      } catch (erro) {
+        if (erro && erro.bancoIndisponivel) return { ok: false, status: 503, erro: erro.message };
+        throw erro;
+      }
+      falhasPorIp.delete(ip);
+      return { ok: true, token, usuario: conta.usuario, papel: conta.papel };
+    }
+    // Reserva: usuário e hash do .env, sessão em memória, papel admin.
     const usuarioCerto = textosIguais(informado, usuario);
-    // A senha é sempre conferida (contra o hash falso se o usuário errou), para o tempo ser parecido.
     const senhaCerta = verificarSenha(senha, usuarioCerto ? senhaHash : HASH_FALSO);
     if (!usuarioCerto || !senhaCerta) {
       registrarFalha(ip);
@@ -123,28 +161,50 @@ function criarAutenticacao({ usuario = 'admin', senhaHash = '', dominio = '', ag
     falhasPorIp.delete(ip);
     limparSessoes();
     if (sessoes.size >= LIMITE_SESSOES) sessoes.delete(sessoes.keys().next().value);
-    const token = crypto.randomBytes(32).toString('hex');
-    const agoraMs = agora();
     sessoes.set(chaveDe(token), { usuario, criada: agoraMs, ultimoUso: agoraMs });
-    return { ok: true, token, usuario };
+    return { ok: true, token, usuario, papel: 'admin' };
   }
 
-  // Devolve { usuario } se o cookie traz uma sessão válida (e renova o uso); senão null.
-  function sessaoDe(cabecalhoCookie) {
+  // Devolve { usuario, papel, usuarioId } se o cookie traz uma sessão válida (e renova o uso); senão null.
+  async function sessaoDe(cabecalhoCookie) {
     const token = lerCookie(cabecalhoCookie);
     if (!/^[0-9a-f]{64}$/.test(token)) return null;
     const chave = chaveDe(token);
-    const s = sessoes.get(chave);
-    if (!s) return null;
     const agoraMs = agora();
-    if (agoraMs - s.ultimoUso > OCIOSIDADE_MS || agoraMs - s.criada > TETO_SESSAO_MS) { sessoes.delete(chave); return null; }
-    s.ultimoUso = agoraMs;
-    return { usuario: s.usuario };
+    const s = sessoes.get(chave);
+    if (s) {
+      if (agoraMs - s.ultimoUso > OCIOSIDADE_MS || agoraMs - s.criada > TETO_SESSAO_MS) { sessoes.delete(chave); return null; }
+      s.ultimoUso = agoraMs;
+      return { usuario: s.usuario, papel: 'admin', usuarioId: null };
+    }
+    if (!comBanco()) return null;
+    try {
+      const d = await repositorio.sessoes.buscar(chave);
+      if (!d || !d.ativo) return null;
+      const criada = new Date(d.criadaEm).getTime();
+      const ultimo = new Date(d.ultimoUso).getTime();
+      if (agoraMs - ultimo > OCIOSIDADE_MS || agoraMs - criada > TETO_SESSAO_MS) { await repositorio.sessoes.remover(chave); return null; }
+      // Só grava o novo "último uso" a cada minuto, para não escrever no banco a cada requisição.
+      if (agoraMs - ultimo > 60 * 1000) await repositorio.sessoes.tocar(chave, new Date(agoraMs));
+      return { usuario: d.usuario, papel: d.papel, usuarioId: d.usuarioId };
+    } catch (erro) { return tolerar(erro); }
   }
 
-  function sair(cabecalhoCookie) {
+  async function sair(cabecalhoCookie) {
     const token = lerCookie(cabecalhoCookie);
-    if (/^[0-9a-f]{64}$/.test(token)) sessoes.delete(chaveDe(token));
+    if (!/^[0-9a-f]{64}$/.test(token)) return;
+    const chave = chaveDe(token);
+    sessoes.delete(chave);
+    if (!comBanco()) return;
+    try { await repositorio.sessoes.remover(chave); } catch (erro) { tolerar(erro); }
+  }
+
+  // Apaga do banco as sessões vencidas (chamado de tempos em tempos pelo servidor).
+  async function limparSessoesDoBanco() {
+    if (!comBanco()) return 0;
+    const agoraMs = agora();
+    try { return await repositorio.sessoes.limpar({ ociosasAntes: new Date(agoraMs - OCIOSIDADE_MS), criadasAntes: new Date(agoraMs - TETO_SESSAO_MS) }); }
+    catch (erro) { tolerar(erro); return 0; }
   }
 
   // Cookie de sessão. "seguro" = o pedido chegou por HTTPS (ou há domínio configurado).
@@ -154,7 +214,7 @@ function criarAutenticacao({ usuario = 'admin', senhaHash = '', dominio = '', ag
     return partes.join('; ');
   }
 
-  return { obrigatorio, usuario, dominio, entrar, sessaoDe, sair, cookie, tamanhoSessoes: () => sessoes.size };
+  return { obrigatorio, usuario, dominio, entrar, sessaoDe, sair, cookie, limparSessoesDoBanco, tamanhoSessoes: () => sessoes.size };
 }
 
 module.exports = { criarAutenticacao, gerarHash, verificarSenha, lerHash, lerCookie, textosIguais, MINIMO_SENHA, NOME_COOKIE };

@@ -16,7 +16,7 @@ x-n8n: &n8n
 services:
   testes-locais:
     image: docker.n8n.io/n8nio/n8n:2.47.3
-    entrypoint: ["node", "--test", "tests/conversa.test.js", "tests/ia.test.js", "tests/painel.test.js", "tests/workflow.test.js", "tests/eventos.test.js", "tests/painel-online.test.js", "tests/painel-online-whatsapp.test.js", "tests/painel-online-senha.test.js"]
+    entrypoint: ["node", "--test", "tests/conversa.test.js", "tests/ia.test.js", "tests/painel.test.js", "tests/workflow.test.js", "tests/eventos.test.js", "tests/painel-online.test.js", "tests/painel-online-whatsapp.test.js", "tests/painel-online-senha.test.js", "tests/banco-conexao.test.js", "tests/banco-ingestor.test.js", "tests/banco-servidor.test.js"]
     working_dir: /app
     volumes:
       - ../:/app:ro
@@ -109,9 +109,13 @@ services:
       start_period: 20s
 
   # Painel lendo o mesmo volume de logs em que o n8n grava (página "Conversas").
+  # Usa a MESMA imagem de produção (painel/Dockerfile); lib/ vem montada, como no ambiente real.
+  # Sem banco e sem login: é o modo antigo, usado pelos testes de sempre.
   painel:
-    image: docker.n8n.io/n8nio/n8n:2.47.3
-    entrypoint: ["node", "/app/painel/server.js"]
+    build:
+      context: ../painel
+    image: chatbot-evento-painel:teste
+    pull_policy: build
     depends_on:
       preparar-logs:
         condition: service_completed_successfully
@@ -124,10 +128,100 @@ services:
       CONVERSAS_RETENCAO_DIAS: 7
       WAHA_URL: http://waha:3000
     volumes:
-      - ../painel:/app/painel:ro
       - ../lib:/app/lib:ro
       - ./config:/files/config:ro
       - logs:/files/logs
+    networks:
+      - teste
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  # ---------- Banco de dados (seção "Banco" do executar-testes.js) ----------
+
+  # Postgres de teste: sem portas publicadas, dados só em memória.
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      TZ: America/Sao_Paulo
+      POSTGRES_DB: chatbot
+      POSTGRES_USER: chatbot
+      POSTGRES_PASSWORD: senha-do-banco-de-teste
+    tmpfs:
+      - /var/lib/postgresql/data
+    networks:
+      - teste
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chatbot -d chatbot"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+
+  # Repassador TCP entre o painel e o Postgres: o teste o "desliga" para simular o banco fora do ar.
+  proxy-banco:
+    image: docker.n8n.io/n8nio/n8n:2.47.3
+    entrypoint: ["node", "/tests/proxy-tcp.js"]
+    environment:
+      DESTINO: postgres:5432
+      PORTA: 5432
+      CONTROLE: 9000
+    volumes:
+      - ./:/tests:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - teste
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:9000/ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  # Cópia gravável da configuração para o painel com banco (o PUT /api/config grava aqui, sem
+  # mexer no arquivo que o n8n lê).
+  preparar-config-banco:
+    image: redis:8-alpine
+    restart: "no"
+    user: "0"
+    network_mode: none
+    entrypoint: ["sh", "-c", "cp /origem/chatbot.json /destino/chatbot.json && chown -R 1000:1000 /destino"]
+    volumes:
+      - ./config:/origem:ro
+      - config_banco:/destino
+
+  # Painel COM banco e COM login (admin / senha-admin-teste-1, vindo de PAINEL_SENHA_HASH), ingerindo
+  # os mesmos logs do n8n. Atrás do proxy-banco, para os testes de queda e volta do banco.
+  painel-banco:
+    build:
+      context: ../painel
+    image: chatbot-evento-painel:teste
+    pull_policy: build
+    depends_on:
+      preparar-logs:
+        condition: service_completed_successfully
+      preparar-config-banco:
+        condition: service_completed_successfully
+      proxy-banco:
+        condition: service_healthy
+    environment:
+      TZ: America/Sao_Paulo
+      PAINEL_HOST: 0.0.0.0
+      PAINEL_PORT: 8080
+      CHATBOT_CONFIG: /files/config/chatbot.json
+      CHATBOT_LOGS: /files/logs
+      CONVERSAS_RETENCAO_DIAS: 7
+      WAHA_URL: http://waha:3000
+      DATABASE_URL: postgres://chatbot:senha-do-banco-de-teste@proxy-banco:5432/chatbot
+      PAINEL_USUARIO: admin
+      PAINEL_SENHA_HASH: scrypt:16384:8:1:7b1238a4bb1d5fc0e20e32cbcb2a24e0:d1a798bef7e296a51fdb73d228654869252ffa8899161434973d1fd8668510310751d9c9ecff4facb7ce78fa2642939ce92f10a6bc6719f90ad0d66d223f1a5a
+    volumes:
+      - ../lib:/app/lib:ro
+      - config_banco:/files/config
+      - logs:/files/logs:ro
     networks:
       - teste
     healthcheck:
@@ -144,17 +238,25 @@ services:
         condition: service_healthy
       painel:
         condition: service_healthy
+      painel-banco:
+        condition: service_healthy
     environment:
       TZ: America/Sao_Paulo
       N8N_URL: http://n8n:5678
       WAHA_URL: http://waha:3000
       WEBHOOK_TOKEN: token-de-teste
       PAINEL_URL: http://painel:8080
+      PAINEL_BANCO_URL: http://painel-banco:8080
+      PROXY_BANCO_URL: http://proxy-banco:9000
+      PAINEL_BANCO_USUARIO: admin
+      PAINEL_BANCO_SENHA: senha-admin-teste-1
     volumes:
       - ./:/tests:ro
       # Regravável: os testes de vários eventos trocam o arquivo e depois o restauram.
       - ./config:/tests/config
       - logs:/logs:ro
+      # Arquivo de configuração do painel com banco (conferir o que o PUT gravou).
+      - config_banco:/config-banco
     networks:
       - teste
 
@@ -164,3 +266,4 @@ networks:
 volumes:
   n8n_data: {}
   logs: {}
+  config_banco: {}

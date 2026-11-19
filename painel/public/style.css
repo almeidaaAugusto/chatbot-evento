@@ -190,3 +190,86 @@ dialog{max-width:calc(100vw - 32px)}
 .acoes-dialogo .botao{flex:1}
 }
 @media(max-width:430px){main{padding-left:14px;padding-right:14px}.marca-leve{display:inline}.marca{font-size:16px}.cartao-numero{padding:18px 16px}.numero-acoes .botao{flex-basis:100%}}
+
+/* ---------- Métricas ---------- */
+.periodo{display:flex;flex-wrap:wrap;align-items:center;gap:12px 18px;margin-bottom:20px}
+.periodo .chips{padding:0;border-bottom:0}
+.periodo .chips button{min-height:36px;padding:6px 14px;font-size:12px}
+.periodo-datas{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px}
+.periodo-datas label{display:flex;flex-direction:column;gap:4px;font-size:11px;font-weight:600;color:#58654f}
+.periodo-datas input{font:inherit;font-size:12px;border:1px solid #dce2d8;border-radius:6px;padding:8px 10px;background:#fdfefb;color:#354537;min-height:38px}
+.grade-graficos{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}
+.cartao-grafico{padding:22px 24px;margin:0;min-width:0}
+.cartao-grafico h2{font-size:16px;margin:0 0 14px}
+.cartao-grafico:first-child,#grafico-hora,#duvidas{grid-column:1/-1}
+.cartao-grafico dl{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:0 0 12px}
+.cartao-grafico dt{font-size:11px;color:var(--suave)}
+.cartao-grafico dd{margin:2px 0 0;font-size:22px;font-weight:600}
+.cartao-grafico ul{margin:6px 0 0;padding-left:18px;font-size:12px}
+.legenda{display:flex;flex-wrap:wrap;gap:6px 16px;margin:0 0 10px;font-size:11px;color:var(--suave)}
+.legenda-item{display:inline-flex;align-items:center;gap:6px}
+.grafico-svg{display:block;width:100%;height:auto}
+.eixo-texto{font-size:11px;fill:#6d7a73;color:var(--suave);margin:0 0 8px}
+svg .eixo-texto{margin:0;font-size:11px}
+.barra-recebidas{fill:#6f9a62}
+.barra-respondidas{fill:#245b43}
+.barra-pico{fill:#d1a23f}
+.barra-linha{display:grid;grid-template-columns:minmax(90px,38%) minmax(0,1fr) auto;align-items:center;gap:10px;margin:0 0 8px;font-size:12px}
+.barra-rotulo{overflow-wrap:anywhere}
+.barra-trilho{background:#eef1ea;border-radius:4px;overflow:hidden;height:14px}
+.barra-svg{display:block;width:100%;height:14px}
+.barra-valor{font-weight:600;min-width:2ch;text-align:right}
+.tabela-duvidas{overflow-x:auto}
+.tabela-duvidas table{width:100%;border-collapse:collapse;font-size:12px}
+.tabela-duvidas th,.tabela-duvidas td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--linha);overflow-wrap:anywhere}
+.tabela-duvidas th:last-child,.tabela-duvidas td:last-child{text-align:right;white-space:nowrap}
+
+/* ---------- Usuários ---------- */
+.lista-usuarios{list-style:none;margin:0;padding:0}
+.usuario-linha{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px 18px;padding:14px 0;border-bottom:1px solid var(--linha)}
+.usuario-linha:last-child{border-bottom:0}
+.usuario-info{display:flex;flex-direction:column;gap:3px;min-width:0;flex:1 1 220px}
+.usuario-info small{color:var(--suave);font-size:11px}
+.usuario-info strong{overflow-wrap:anywhere}
+.usuario-acoes{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.usuario-acoes select,.formulario-usuario select{font:inherit;font-size:12px;border:1px solid #dce2d8;border-radius:6px;padding:8px 10px;background:#fdfefb;color:#354537;min-height:38px}
+.formulario-usuario{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px 16px;align-items:end}
+.formulario-usuario .campo{margin:0}
+.selo-papel{font-size:10px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;border-radius:4px;padding:3px 7px;background:#e5ebdf;color:#355c3c;align-self:flex-start}
+
+/* ---------- Histórico de versões e comentário ---------- */
+.lista-versoes{list-style:none;margin:0;padding:0}
+.versao{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px 16px;padding:12px 0;border-bottom:1px solid var(--linha)}
+.versao:last-child{border-bottom:0}
+.versao-info{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1 1 220px}
+.versao-info small{color:var(--suave);font-size:11px}
+.versao-comentario{font-size:12px;overflow-wrap:anywhere}
+.versao-acoes{display:flex;gap:8px}
+.conteudo-versao{max-height:50vh;max-width:min(70ch,100%);overflow:auto;background:#f6f8f3;border:1px solid var(--linha);border-radius:6px;padding:12px;font:11px/1.5 Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere}
+.campo-comentario{flex:1 1 220px;max-width:420px}
+.campo-comentario input{width:100%;font:inherit;font-size:12px;border:1px solid #dce2d8;border-radius:6px;padding:9px 11px;background:#fdfefb;min-height:40px}
+
+/* ---------- Conversas: histórico do banco ---------- */
+.seletor-modo{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 16px}
+.seletor-modo button{font-size:12px;font-weight:600;border:1px solid #dfe5d8;background:#f8faf5;color:#5f7457;border-radius:20px;padding:7px 14px;min-height:36px}
+.seletor-modo button[aria-pressed=true]{background:var(--verde);border-color:var(--verde);color:#fff}
+.filtros-historico{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;padding:13px 13px 10px;border-bottom:1px solid #edf0e9}
+.campo-filtro{display:flex;flex-direction:column;gap:3px;font-size:11px;font-weight:600;color:#58654f}
+.campo-filtro input{font:inherit;font-size:12px;border:1px solid #dce2d8;border-radius:6px;padding:7px 9px;background:#fdfefb;color:#354537;min-height:36px}
+.campo-filtro-busca{flex:1 1 140px}
+.campo-filtro-busca input{width:100%}
+.contato-resposta{color:#6b8a5c}
+.h-mais{padding:10px 13px;text-align:center}
+
+@media(min-width:1001px){.indicadores.servidor{grid-template-columns:repeat(6,minmax(0,1fr))}}
+@media(max-width:1000px){.grade-graficos{grid-template-columns:1fr}.formulario-usuario{grid-template-columns:1fr 1fr}}
+@media(max-width:760px){
+.cartao-grafico{padding:18px 16px}
+.barra-linha{grid-template-columns:minmax(80px,40%) minmax(0,1fr) auto;gap:8px}
+.formulario-usuario{grid-template-columns:1fr}
+.usuario-acoes{width:100%}
+.usuario-acoes .botao,.versao-acoes .botao{flex:1}
+.versao-acoes{width:100%}
+.campo-comentario{flex-basis:100%;max-width:none}
+.periodo-datas label,.periodo-datas input{width:100%}
+}
