@@ -1,0 +1,21 @@
+#!/bin/sh
+# Trava de dados sensíveis: o repositório é público (portfólio). Antes de cada commit roda o
+# teste-guarda (tests/segredos.test.js), que barra chaves, hashes, IP/domínio do servidor,
+# telefones reais, .env e config/chatbot.json versionados.
+# Ative uma vez por clone:  git config core.hooksPath .githooks
+# Não use "git commit --no-verify" para pular esta verificação.
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "pre-commit: Node.js não encontrado; não foi possível conferir dados sensíveis." >&2
+  exit 1
+fi
+
+# O teste lê os arquivos versionados (git ls-files). Os arquivos novos já adicionados ao índice
+# também aparecem ali, então o que está indo para o commit é conferido.
+if ! node --test tests/segredos.test.js >/tmp/pre-commit-segredos.log 2>&1; then
+  echo "pre-commit: possível dado sensível no commit. Detalhes (arquivo, linha e tipo, sem o valor):" >&2
+  grep -E "^\s*(not ok|#|-|\S+:[0-9]+)" /tmp/pre-commit-segredos.log | head -40 >&2
+  echo "Corrija (mova o valor para o .env ou use um dado fictício) e tente de novo." >&2
+  exit 1
+fi
+exit 0

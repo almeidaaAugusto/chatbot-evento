@@ -17,7 +17,7 @@ function exemplo() {
     mensagens: { menu: '1 - Comprar ingresso\n2 - Documentos' },
     opcoes: [
       { id: 'comprar', titulo: 'Comprar ingresso', palavras_exatas: ['1'], palavras_chave: ['comprar'],
-        resposta: 'Compre em {{link_compra}} ou sem taxa com a Ana: https://wa.me/5518999990000' },
+        resposta: 'Compre em {{link_compra}} ou sem taxa com a Ana: https://wa.me/5500000000001' },
       { id: 'documentos', titulo: 'Documentos', palavras_exatas: ['2'], palavras_chave: ['documento'],
         resposta: 'Leve documento com foto. Proibido para menores de 18.' },
     ],
@@ -213,10 +213,10 @@ test('links, perfis, e-mails, telefones e preços precisam existir no conhecimen
   // Conferem com o cadastrado (inclusive com pontuação colada e outro formato).
   for (const certa of [
     'Compre aqui: https://ingressos.example.com/baile.',
-    'Fale com a Ana (https://wa.me/5518999990000)!',
+    'Fale com a Ana (https://wa.me/5500000000001)!',
     'O Instagram é https://www.instagram.com/baile.teste/ e o perfil é @baile.teste.',
     'Escreva para sac@baile.example.com.',
-    'Chame a Ana no (18) 99999-0000 ou +55 18 99999-0000.',
+    'Chame a Ana no (00) 00000-0001 ou +55 00 00000-0001.',
     'O ingresso Geral está R$ 40,00 (R$40 + taxa), ou seja, 40 reais.',
     'É no sábado, 14/11/2026, às 22h. Menores de 18 não entram.',
   ]) assert.equal(lida(certa).ok, true, certa);
@@ -225,7 +225,7 @@ test('links, perfis, e-mails, telefones e preços precisam existir no conhecimen
     ['Compre em https://ingressos.example.com/outro-baile', 'link_nao_confirmado'],
     ['Compre em https://sympla.com.br/baile', 'link_nao_confirmado'],
     ['Veja em sympla.com.br/baile-teste', 'link_nao_confirmado'],
-    ['Fale no https://wa.me/5511988887777', 'link_nao_confirmado'],
+    ['Fale no https://wa.me/5500000000002', 'link_nao_confirmado'],
     ['Chame o @outro.perfil no Instagram', 'contato_nao_confirmado'],
     ['Escreva para contato@outro.example.com', 'contato_nao_confirmado'],
     ['Ligue para (11) 98888-7777', 'contato_nao_confirmado'],

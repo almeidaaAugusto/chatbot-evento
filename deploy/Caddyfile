@@ -1,5 +1,5 @@
 # Caddy na frente do painel (serviço "caddy" do docker-compose.yml, perfil "online").
-# O domínio vem da variável PAINEL_DOMINIO do .env (ex.: <DOMINIO_DO_PAINEL>).
+# O domínio vem da variável PAINEL_DOMINIO do .env (ex.: 203-0-113-10.sslip.io).
 # O certificado HTTPS (Let's Encrypt) é pedido e renovado sozinho; as portas 80 e 443 precisam
 # estar abertas no servidor e na Security List da Oracle. Para trocar de domínio, mude só
 # PAINEL_DOMINIO e rode "docker compose up -d".

@@ -42,7 +42,7 @@ No PC, as portas são publicadas somente em `127.0.0.1`: nada fica acessível pe
 ## Comandos do dia a dia
 
 > Os comandos desta seção e das seguintes valem para a stack **no computador onde ela roda**.
-> Em produção isso é a VPS: no PC use `scriptsps.ps1 -Script <nome>` (veja "Rodar na VPS" e
+> Em produção isso é a VPS: no PC use `scripts\vps.ps1 -Script <nome>` (veja "Rodar na VPS" e
 > [docs/operacao.md](docs/operacao.md)). **Não suba a stack real no PC**: dois robôs no mesmo
 > número respondem em dobro.
 
@@ -65,14 +65,17 @@ iniciar com o Windows (Settings > General > *Start Docker Desktop when you sign 
 
 ## Primeira instalação em outro computador
 
-Em uma máquina nova (a VPS usa `scriptsps.ps1 -Instalar` e `-Enviar`), com o Docker aberto:
+Em uma máquina nova (a VPS usa `scripts\vps.ps1 -Instalar` e `-Enviar`), com o Docker aberto:
 
 ```
+copy config\chatbot.exemplo.json config\chatbot.json
 powershell -ExecutionPolicy Bypass -File scripts\gerar-env.ps1
 docker compose up -d
 ```
 
-O primeiro comando cria o `.env` com chaves aleatórias. Na primeira subida o serviço
+Antes de usar, copie o exemplo: `config/chatbot.json` não vem no repositório (é a configuração local, que depois é editada pelo painel). O `scripts\gerar-env.ps1` também copia o exemplo se o arquivo faltar. Na VPS, o `-Enviar` da primeira vez envia o `config/chatbot.json` local ou, na falta, o exemplo.
+
+O `gerar-env.ps1` cria o `.env` com chaves aleatórias. Na primeira subida o serviço
 `n8n-init` importa as credenciais e os dois workflows e publica (ativa) o chatbot.
 
 ## Rodar na VPS (Oracle)
@@ -95,7 +98,7 @@ parar, conectar por QR Code e desconectar cada número.
 
 ```
 powershell -ExecutionPolicy Bypass -File scripts\vps.ps1 -SenhaPainel
-powershell -ExecutionPolicy Bypass -File scripts\vps.ps1 -Online -Dominio <DOMINIO_DO_PAINEL>
+powershell -ExecutionPolicy Bypass -File scripts\vps.ps1 -Online -Dominio 203-0-113-10.sslip.io
 ```
 
 - Antes: libere TCP 80, TCP 443 e UDP 443 na Security List da Oracle e rode `-Enviar`.

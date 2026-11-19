@@ -7,7 +7,8 @@
 #   -Instalar                    Envia e roda deploy\preparar-servidor.sh no servidor (uma vez).
 #   -Enviar [-SobrescreverEnv]   Envia o ultimo commit (git archive HEAD), reconstroi a imagem do painel e sobe os conteineres.
 #                                Acrescenta POSTGRES_SENHA ao .env do servidor se faltar (nunca troca uma existente).
-#                                Nunca sobrescreve config\chatbot.json do servidor se ele ja existir.
+#                                Nunca sobrescreve config\chatbot.json do servidor se ele ja existir; na primeira vez
+#                                envia o config\chatbot.json local (ou, sem ele, o exemplo renomeado).
 #                                O .env so vai se nao existir no servidor (ou com -SobrescreverEnv).
 #   -Tunel                       Abre o tunel SSH (painel, WAHA, n8n) e fica aberto ate Ctrl+C.
 #   -Script <nome> [-Argumentos ...]   Roda scripts\<nome>.ps1 apontando para a VPS (modo VPS).
@@ -180,11 +181,21 @@ if ($Enviar) {
     # config\chatbot.json do servidor e a versao viva (editada pelo painel): so entra na primeira vez.
     $excluir = if ($temConfig) { '--exclude=config/chatbot.json' } else { '' }
     if ($temConfig) { Write-Host 'config\chatbot.json do servidor preservado (nao foi sobrescrito).' }
-    else { Write-Host 'Primeira vez: config\chatbot.json vai junto com o codigo.' }
+    else { Write-Host 'Primeira vez: o servidor ainda nao tem config\chatbot.json (ele nao vai no git); sera enviado logo depois do codigo.' }
     # --no-overwrite-dir -m: nao mexe em dono/data de pastas que ja existem (a pasta config e gravada pelo painel).
     $bash = "mkdir -p $pastaB && tar -x --no-overwrite-dir -m --no-same-owner $excluir -f chatbot-envio.tar -C $pastaB; rc=`$?; rm -f chatbot-envio.tar; exit `$rc"
     Invoke-Externo { Invoke-VpsSsh $bash } -Completo | Out-Host
     if ($LASTEXITCODE -ne 0) { throw 'Falha ao extrair o codigo no servidor.' }
+
+    if (-not $temConfig) {
+        # config\chatbot.json nao esta no git: envia o local, se existir; senao o exemplo, renomeado.
+        $cfgLocal = Join-Path $raiz 'config\chatbot.json'
+        $cfgExemplo = Join-Path $raiz 'config\chatbot.exemplo.json'
+        if (Test-Path -LiteralPath $cfgLocal) { $origemCfg = $cfgLocal; Write-Host 'Enviando o config\chatbot.json local para o servidor (primeira vez)...' }
+        elseif (Test-Path -LiteralPath $cfgExemplo) { $origemCfg = $cfgExemplo; Write-Host 'Enviando config\chatbot.exemplo.json como config\chatbot.json (primeira vez; edite pelo painel).' }
+        else { throw 'Nao ha config\chatbot.json nem config\chatbot.exemplo.json neste computador.' }
+        Copy-ParaVps $origemCfg "$($c.Pasta)/config/chatbot.json"
+    }
 
     if ($mandarEnv) {
         # Com -SobrescreverEnv, guarda a configuracao do painel online que ja estava no servidor.

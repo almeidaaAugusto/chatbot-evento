@@ -23,3 +23,6 @@ Thumbs.db
 # VPS: configuracao local do servidor e copias de seguranca baixadas
 deploy/vps.local.json
 backups/
+
+# Configuracao real (promoters e telefones): fora do git; o modelo e config/chatbot.exemplo.json
+config/chatbot.json
