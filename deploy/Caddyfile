@@ -1,0 +1,36 @@
+# Caddy na frente do painel (serviço "caddy" do docker-compose.yml, perfil "online").
+# O domínio vem da variável PAINEL_DOMINIO do .env (ex.: <DOMINIO_DO_PAINEL>).
+# O certificado HTTPS (Let's Encrypt) é pedido e renovado sozinho; as portas 80 e 443 precisam
+# estar abertas no servidor e na Security List da Oracle. Para trocar de domínio, mude só
+# PAINEL_DOMINIO e rode "docker compose up -d".
+
+# Só o domínio configurado é atendido: com outro nome (ou o IP) no endereço, o handshake TLS
+# falha porque não há certificado para ele.
+{$PAINEL_DOMINIO} {
+	encode zstd gzip
+
+	request_body {
+		max_size 2MB
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Frame-Options "DENY"
+		-Server
+	}
+
+	reverse_proxy painel:8080
+
+	# Log de acesso no stdout (docker compose logs caddy). O Caddy já troca por REDACTED os
+	# cabeçalhos Cookie, Set-Cookie, Authorization e Proxy-Authorization (só apareceriam com a
+	# opção global "log_credentials", que NÃO está ligada).
+	log {
+		output stdout
+	}
+}
+
+# Porta 80 com qualquer outro nome de host: 404. (O redirecionamento HTTP -> HTTPS do próprio
+# domínio é automático e continua valendo.)
+:80 {
+	respond 404
+}

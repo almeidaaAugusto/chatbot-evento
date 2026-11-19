@@ -88,6 +88,7 @@ async function api(rota, metodo = 'GET', corpo) {
   let res;
   try { res = await fetch(rota, { method: metodo, headers: corpo === undefined ? {} : { 'Content-Type': 'application/json' }, body: corpo === undefined ? undefined : JSON.stringify(corpo) }); }
   catch { throw new Error('Não foi possível conectar ao painel local. Confira se o serviço está ligado e tente novamente.'); }
+  if (res.status === 401) { location.href = '/login'; throw new Error('Sessão expirada. Entre novamente.'); }
   let dados;
   try { dados = await res.json(); } catch { throw new Error('O painel retornou uma resposta inesperada. Recarregue e tente novamente.'); }
   if (!res.ok) {
@@ -599,3 +600,21 @@ $('#simular-midia').addEventListener('click', () => simular(true));
 $('#reiniciar-conversa').addEventListener('click', reiniciarConversa);
 window.addEventListener('beforeunload', evento => { if (alterado()) { evento.preventDefault(); evento.returnValue = ''; } });
 carregar();
+
+// Mostra o botão "Sair" quando o login é obrigatório e trata o logout.
+async function prepararSair() {
+  const botao = document.getElementById('botao-sair');
+  if (!botao) return;
+  try {
+    const r = await fetch('/api/sessao', { headers: { Accept: 'application/json' } });
+    const s = await r.json();
+    if (!s.loginObrigatorio) return;
+    botao.hidden = false;
+    botao.addEventListener('click', async () => {
+      botao.disabled = true;
+      try { await fetch('/api/logout', { method: 'POST' }); } catch { /* segue para o login mesmo assim */ }
+      location.href = '/login';
+    });
+  } catch { /* sem sessão ou painel fora: o botão fica escondido */ }
+}
+prepararSair();

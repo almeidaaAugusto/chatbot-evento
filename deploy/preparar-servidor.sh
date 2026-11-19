@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # Prepara uma VM Ubuntu 24.04 (aarch64, Oracle Cloud) para rodar o chatbot com Docker Compose.
 #
-# Uso (no servidor):  bash preparar-servidor.sh [usuario]
-#   usuario: quem vai usar o Docker (padrao: quem chamou o script, ou SUDO_USER).
+# Uso (no servidor):  bash preparar-servidor.sh [usuario] [--abrir-web] [--so-web]
+#   usuario:      quem vai usar o Docker (padrao: quem chamou o script, ou SUDO_USER).
+#   --abrir-web:  etapa 8 opcional: libera as portas 80 e 443 no iptables (painel online com HTTPS).
+#   --so-web:     roda SOMENTE a etapa 8 (implica --abrir-web). Usado por "vps.ps1 -Online".
 #
 # Pode ser executado varias vezes sem estragar nada (idempotente).
-# NAO mexe em firewall (iptables/ufw/Security List da Oracle): isso fica por conta do operador.
+# Sem --abrir-web o script NAO mexe em firewall. A Security List da Oracle (rede da nuvem) nunca
+# e alterada por aqui: portas 80 e 443 tambem precisam ser liberadas la, pelo console ou OCI CLI.
 set -euo pipefail
 
 export DEBIAN_FRONTEND=noninteractive
@@ -31,7 +34,113 @@ aviso() {
   echo "    AVISO: $*" >&2
 }
 
-ALVO="${1:-${SUDO_USER:-$(id -un)}}"
+# Etapa 8 (opcional): libera 80/tcp, 443/tcp e 443/udp (HTTP/3) no iptables do Ubuntu da Oracle.
+#
+# As imagens Ubuntu da Oracle trazem em /etc/iptables/rules.v4 uma regra "-A INPUT -j REJECT" no
+# fim da cadeia INPUT, que barra tudo o que nao for SSH. Por isso as regras ACCEPT entram ANTES
+# dela (iptables -C antes de -I: sem duplicar). Portas publicadas pelo Docker passam por DNAT na
+# tabela nat e pela cadeia FORWARD, nao pela INPUT; entao o ACCEPT na INPUT pode nao ser
+# estritamente necessario para elas, mas deixa a abertura explicita e funciona mesmo que o
+# Docker mude de comportamento. A cadeia FORWARD da Oracle tambem termina em REJECT, mas o Docker
+# insere as proprias regras (DOCKER-USER, DOCKER-FORWARD) NO TOPO dela, antes do REJECT: nada a
+# fazer; so conferimos e avisamos se for diferente.
+#
+# Persistencia: em vez de "netfilter-persistent save" (que gravaria tambem as cadeias efemeras do
+# Docker em rules.v4), as linhas sao inseridas direto em /etc/iptables/rules.v4. Se o arquivo
+# nao tiver o formato esperado, usa "netfilter-persistent save" como alternativa.
+abrir_web() {
+  if ! command -v iptables >/dev/null 2>&1; then
+    aviso "iptables nao encontrado; nada a liberar."
+    return 0
+  fi
+
+  if ! dpkg -s iptables-persistent >/dev/null 2>&1; then
+    echo "    Instalando iptables-persistent (mantem as regras apos reiniciar)..."
+    como_root apt-get update -qq
+    como_root apt-get install -y -qq iptables-persistent
+  fi
+
+  # "proto porta": regra ACCEPT inserida antes do primeiro REJECT da INPUT (ou no fim, se nao houver).
+  local regra proto porta posicao
+  for regra in "tcp 80" "tcp 443" "udp 443"; do
+    proto="${regra% *}"
+    porta="${regra#* }"
+    if como_root iptables -C INPUT -p "$proto" --dport "$porta" -j ACCEPT 2>/dev/null; then
+      echo "    Regra $proto/$porta ja existe."
+      continue
+    fi
+    posicao="$(como_root iptables -L INPUT --line-numbers -n | awk '$2 == "REJECT" { print $1; exit }')"
+    if [ -n "$posicao" ]; then
+      como_root iptables -I INPUT "$posicao" -p "$proto" --dport "$porta" -j ACCEPT
+    else
+      como_root iptables -A INPUT -p "$proto" --dport "$porta" -j ACCEPT
+    fi
+    echo "    Liberado $proto/$porta."
+  done
+
+  # Persistencia em /etc/iptables/rules.v4.
+  local arq=/etc/iptables/rules.v4 linha tmp persistiu=1
+  if como_root test -f "$arq" && como_root grep -q '^-A INPUT .*-j REJECT' "$arq"; then
+    for linha in "-A INPUT -p tcp -m tcp --dport 80 -j ACCEPT"                  "-A INPUT -p tcp -m tcp --dport 443 -j ACCEPT"                  "-A INPUT -p udp -m udp --dport 443 -j ACCEPT"; do
+      if como_root grep -qxF -- "$linha" "$arq"; then
+        continue
+      fi
+      tmp="$(mktemp)"
+      como_root cat "$arq" | awk -v l="$linha" '!feito && /^-A INPUT .*-j REJECT/ { print l; feito = 1 } { print }' > "$tmp"
+      # tee preserva dono e permissoes do arquivo original.
+      como_root tee "$arq" >/dev/null < "$tmp"
+      rm -f "$tmp"
+    done
+    echo "    Regras gravadas em $arq (valem apos reiniciar)."
+    persistiu=0
+  fi
+  if [ "$persistiu" -ne 0 ]; then
+    if como_root netfilter-persistent save >/dev/null 2>&1; then
+      echo "    Regras gravadas com netfilter-persistent save."
+    else
+      aviso "nao foi possivel gravar as regras para depois do reinicio. Rode: sudo netfilter-persistent save"
+    fi
+  fi
+
+  # Confere a cadeia FORWARD: o REJECT da Oracle nao pode vir antes das regras do Docker.
+  local rej dock
+  rej="$(como_root iptables -S FORWARD | awk '/-j REJECT/ { print NR; exit }')"
+  dock="$(como_root iptables -S FORWARD | awk '/-j DOCKER/ { print NR; exit }')"
+  if [ -n "$rej" ] && { [ -z "$dock" ] || [ "$dock" -gt "$rej" ]; }; then
+    aviso "a cadeia FORWARD tem um REJECT antes das regras do Docker; as portas publicadas podem ficar bloqueadas. Reinicie o Docker (sudo systemctl restart docker) e confira com: sudo iptables -S FORWARD"
+  fi
+
+  # Ubuntu com ufw ativo (nao e o padrao da Oracle): libera tambem por la.
+  if command -v ufw >/dev/null 2>&1 && como_root ufw status 2>/dev/null | grep -q '^Status: active'; then
+    como_root ufw allow 80/tcp >/dev/null
+    como_root ufw allow 443/tcp >/dev/null
+    como_root ufw allow 443/udp >/dev/null
+    echo "    ufw: 80 e 443 liberadas."
+  fi
+
+  echo "    Lembrete: a Security List da Oracle tambem precisa liberar 80 e 443 (TCP) e 443 (UDP)."
+}
+
+# Argumentos: [usuario] [--abrir-web] [--so-web], em qualquer ordem.
+ABRIR_WEB=0
+SO_WEB=0
+USUARIO_ARG=""
+for argumento in "$@"; do
+  case "$argumento" in
+    --abrir-web) ABRIR_WEB=1 ;;
+    --so-web) ABRIR_WEB=1; SO_WEB=1 ;;
+    -*) echo "ERRO: opcao desconhecida '$argumento'." >&2; exit 1 ;;
+    *) USUARIO_ARG="$argumento" ;;
+  esac
+done
+
+if [ "$SO_WEB" -eq 1 ]; then
+  echo "==> 8/9 Liberando as portas 80 e 443 no firewall (iptables)..."
+  abrir_web
+  exit 0
+fi
+
+ALVO="${USUARIO_ARG:-${SUDO_USER:-$(id -un)}}"
 
 if ! id "$ALVO" >/dev/null 2>&1; then
   echo "ERRO: usuario '$ALVO' nao existe." >&2
@@ -122,8 +231,12 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 8/9 - Firewall: este script NAO altera iptables, ufw nem a Security List da Oracle.
-#       Libere as portas necessarias (ex.: 80/443) manualmente, se precisar.
+echo "==> 8/9 Firewall (portas 80 e 443 para o painel online)..."
+if [ "$ABRIR_WEB" -eq 1 ]; then
+  abrir_web
+else
+  echo "    Nao alterado (use --abrir-web para liberar 80 e 443 no iptables)."
+fi
 
 # ---------------------------------------------------------------------------
 echo "==> 9/9 Resumo final"

@@ -27,9 +27,10 @@ WhatsApp  <-  WAHA  <--API-----  n8n  (envia a resposta)
 | `n8n` (2.47.3) | Executa o workflow do chatbot | http://localhost:5678 |
 | `redis` (8) | Guarda o estado: mensagens já vistas, limites, contatos em atendimento humano | só na rede interna |
 | `painel` | Edita o conteúdo, simula conversas e mostra as conversas reais e os erros | http://localhost:8080 (conversas em http://localhost:8080/conversas) |
+| `caddy` (2.10, perfil `online`) | HTTPS na frente do painel; só sobe no servidor com `COMPOSE_PROFILES=online` (veja "Painel online") | portas 80 e 443 do servidor |
 | `n8n-init`, `preparar-logs` | Rodam uma vez a cada subida e terminam (aparecem como `Exited (0)`) | — |
 
-As portas são publicadas somente em `127.0.0.1`: nada fica acessível pela rede ou pela internet.
+No PC, as portas são publicadas somente em `127.0.0.1`: nada fica acessível pela rede ou pela internet. Só o `caddy`, ligado no servidor, abre as portas 80 e 443.
 
 ## Comandos do dia a dia
 
@@ -69,7 +70,27 @@ O passo a passo para iniciantes está em [docs/vps-oracle.md](docs/vps-oracle.md
 - Crie a VM (Ubuntu 24.04, ARM, 2 OCPU e 12 GB), converta a conta para Pay As You Go e crie um alerta de orçamento.
 - `powershell -ExecutionPolicy Bypass -File scripts\vps.ps1 -Configurar -Servidor <IP>` e depois `-Instalar` preparam o servidor (uma vez).
 - Pare o robô do PC (`docker compose down`), rode `scripts\vps.ps1 -Enviar` e conecte o WhatsApp com `-Script conectar-whatsapp`.
-- Painel, WAHA e n8n ficam acessíveis só pelo túnel SSH (`scripts\vps.ps1 -Tunel`), nunca pela internet.
+- Painel, WAHA e n8n ficam acessíveis pelo túnel SSH (`scripts\vps.ps1 -Tunel`). Só o painel pode ser aberto na internet, com HTTPS e login (veja abaixo).
+
+### Painel online (HTTPS e login)
+
+Com o painel online, o celular ou outro PC abre **https://<DOMINIO_DO_PAINEL>** (endereço
+gratuito do sslip.io; o certificado é automático). Um serviço `caddy` (perfil `online` do Docker
+Compose, ligado só no servidor) recebe as portas 80 e 443 e repassa ao painel. O WAHA e o n8n
+continuam fechados. Depois de entrar, a página **WhatsApp** mostra o servidor e permite ligar,
+parar, conectar por QR Code e desconectar cada número.
+
+```
+powershell -ExecutionPolicy Bypass -File scripts\vps.ps1 -SenhaPainel
+powershell -ExecutionPolicy Bypass -File scripts\vps.ps1 -Online -Dominio <DOMINIO_DO_PAINEL>
+```
+
+- Antes: libere TCP 80, TCP 443 e UDP 443 na Security List da Oracle e rode `-Enviar`.
+- `-SenhaPainel` pede usuário e senha (mínimo 12 caracteres, digitada sem aparecer) e grava só o hash no `.env` do servidor. Rode de novo para trocar a senha.
+- `-Online` libera 80/443 no firewall do servidor, grava `PAINEL_DOMINIO`, `COMPOSE_PROFILES=online` e `PAINEL_CONFIAR_PROXY=true` no `.env` do servidor, sobe o Caddy e testa o endereço. Para trocar de domínio, rode de novo com outro `-Dominio`.
+- `-OnlineDesligar` para o Caddy e volta ao acesso só por túnel.
+
+Detalhes, cuidados e solução de problemas: [docs/vps-oracle.md](docs/vps-oracle.md), seção 10.
 
 ## Conectar o WhatsApp
 
@@ -520,8 +541,9 @@ mensagens daquele contato.
 - Para trocar as chaves: edite o `.env` (ou `scripts\gerar-env.ps1 -Forcar`, que troca todas),
   depois `docker compose up -d` e `scripts\reimportar-workflows.ps1 -Credenciais`.
   **Não troque `N8N_ENCRYPTION_KEY` sem reimportar com `-Tudo`**: o n8n deixa de ler as credenciais salvas.
-- Não exponha as portas 3000 e 5678 na internet. Se um dia precisar de acesso externo,
-  coloque HTTPS e autenticação na frente.
+- Não exponha as portas 3000 e 5678 na internet. Só o painel pode ir para a internet, e apenas
+  pelo Caddy (HTTPS) com login (veja "Painel online"); como o painel guarda a chave do WAHA
+  (`WAHA_API_KEY`), use uma senha forte.
 
 ## Dados guardados e como apagar
 
