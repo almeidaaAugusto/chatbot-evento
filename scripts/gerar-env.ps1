@@ -14,6 +14,18 @@ $destino = Join-Path $raiz '.env'
 
 if (-not (Test-Path -LiteralPath $modelo)) { throw "Arquivo nao encontrado: $modelo" }
 
+# config\chatbot.json nao vai para o git (tem dados reais): na primeira instalacao parte do exemplo.
+$configReal = Join-Path $raiz 'config\chatbot.json'
+$configExemplo = Join-Path $raiz 'config\chatbot.exemplo.json'
+if (-not (Test-Path -LiteralPath $configReal)) {
+    if (Test-Path -LiteralPath $configExemplo) {
+        Copy-Item -LiteralPath $configExemplo -Destination $configReal
+        Write-Host 'config\chatbot.json nao existia: copiei config\chatbot.exemplo.json. Edite os promoters, links e textos reais (pelo painel ou no arquivo).'
+    } else {
+        Write-Host 'AVISO: config\chatbot.json nao existe e config\chatbot.exemplo.json tambem nao foi encontrado.'
+    }
+}
+
 # Senha do Postgres: 32 caracteres [A-Za-z0-9] (sem simbolos, para entrar na DATABASE_URL sem escape).
 function New-SenhaBanco([int]$Tamanho = 32) {
     $alfabeto = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'

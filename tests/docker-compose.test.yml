@@ -16,7 +16,7 @@ x-n8n: &n8n
 services:
   testes-locais:
     image: docker.n8n.io/n8nio/n8n:2.47.3
-    entrypoint: ["node", "--test", "tests/conversa.test.js", "tests/ia.test.js", "tests/painel.test.js", "tests/workflow.test.js", "tests/eventos.test.js", "tests/painel-online.test.js", "tests/painel-online-whatsapp.test.js", "tests/painel-online-senha.test.js", "tests/banco-conexao.test.js", "tests/banco-ingestor.test.js", "tests/banco-servidor.test.js"]
+    entrypoint: ["node", "--test", "tests/conversa.test.js", "tests/ia.test.js", "tests/painel.test.js", "tests/workflow.test.js", "tests/eventos.test.js", "tests/painel-online.test.js", "tests/painel-online-whatsapp.test.js", "tests/painel-online-senha.test.js", "tests/banco-conexao.test.js", "tests/banco-ingestor.test.js", "tests/banco-servidor.test.js", "tests/segredos.test.js"]
     working_dir: /app
     volumes:
       - ../:/app:ro
