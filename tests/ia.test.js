@@ -144,7 +144,7 @@ test('parâmetros seguem o provedor e podem ser sobrescritos', () => {
   assert.equal(IA.montarPedido(outroModelo, 'oi tudo bem').corpo.reasoning_effort, undefined);
 });
 
-test('IA só é consultada para texto não reconhecido, com a IA ligada e limites positivos', () => {
+test('IA só é consultada para texto não reconhecido e com a IA ligada (limite 0 = sem limite)', () => {
   const cfg = exemplo();
   assert.equal(IA.deveConsultar(cfg, naoEntendi, 'tem estacionamento?'), true);
   assert.equal(IA.deveConsultar(cfg, { intencao: 'nao_entendi', origem: 'fallback_esgotado', silenciar: true }, 'e open bar?'), true);
@@ -154,10 +154,13 @@ test('IA só é consultada para texto não reconhecido, com a IA ligada e limite
   assert.equal(IA.deveConsultar(cfg, { intencao: 'menu', origem: 'saudacao' }, 'oi'), false);
   for (const semLetras of ['12', '??', '👍👍', '   ', 'ok']) assert.equal(IA.deveConsultar(cfg, naoEntendi, semLetras), false, semLetras);
   assert.equal(IA.deveConsultar(cfg, null, 'tem estacionamento?'), false);
-  for (const ajuste of [{ ativa: false }, { max_usos_por_contato: 0 }, { max_usos_por_dia: 0 }]) {
-    const desligada = exemplo();
-    Object.assign(desligada.ia, ajuste);
-    assert.equal(IA.deveConsultar(desligada, naoEntendi, 'tem estacionamento?'), false, JSON.stringify(ajuste));
+  const desligada = exemplo();
+  desligada.ia.ativa = false;
+  assert.equal(IA.deveConsultar(desligada, naoEntendi, 'tem estacionamento?'), false);
+  for (const ajuste of [{ max_usos_por_contato: 0 }, { max_usos_por_dia: 0 }, { max_usos_por_contato: 0, max_usos_por_dia: 0 }]) {
+    const semLimite = exemplo();
+    Object.assign(semLimite.ia, ajuste);
+    assert.equal(IA.deveConsultar(semLimite, naoEntendi, 'tem estacionamento?'), true, JSON.stringify(ajuste));
   }
   const semSecao = exemplo();
   delete semSecao.ia;
@@ -298,4 +301,50 @@ test('consulta sem chave, com erro HTTP, sem rede ou lenta devolve o motivo', as
   });
   assert.deepEqual(esgotada, { ok: false, motivo: 'tempo_esgotado' });
   assert.ok(Date.now() - inicio < 4000, 'a espera respeita o tempo limite configurado');
+});
+
+test('modelosReserva: até 2, sem vazios, repetidos nem o modelo principal', () => {
+  assert.deepEqual(IA.configuracao({}).modelosReserva, []);
+  const cfg = exemplo();
+  cfg.ia.modelos_reserva = [' openai/gpt-oss-20b ', '', 'openai/gpt-oss-120b', 'openai/gpt-oss-20b', 'qwen/qwen3.8-27b', 'outro'];
+  assert.deepEqual(IA.configuracao(cfg).modelosReserva, ['openai/gpt-oss-20b', 'qwen/qwen3.8-27b']);
+  cfg.ia.modelos_reserva = 'texto';
+  assert.deepEqual(IA.configuracao(cfg).modelosReserva, []);
+});
+
+test('montarPedido aceita contexto.modelo e decide o raciocínio pelo modelo efetivo', () => {
+  const cfg = exemplo();
+  cfg.ia.parametros = { top_p: 0.5 };
+  const qwen = IA.montarPedido(cfg, 'oi tudo bem', { modelo: 'qwen/qwen3.8-27b' });
+  assert.equal(qwen.corpo.model, 'qwen/qwen3.8-27b');
+  assert.equal(qwen.corpo.reasoning_effort, undefined);
+  assert.equal(qwen.corpo.include_reasoning, undefined);
+  assert.equal(qwen.corpo.top_p, 0.5);
+  const oss = IA.montarPedido(cfg, 'oi tudo bem', { modelo: 'openai/gpt-oss-20b' });
+  assert.equal(oss.corpo.reasoning_effort, 'low');
+  const principalQwen = exemplo();
+  principalQwen.ia.modelo = 'qwen/qwen3.8-27b';
+  assert.equal(IA.montarPedido(principalQwen, 'oi tudo bem', { modelo: 'openai/gpt-oss-20b' }).corpo.reasoning_effort, 'low');
+});
+
+test('montarPedidos devolve principal e reservas, só os gpt-oss com raciocínio', () => {
+  const cfg = exemplo();
+  cfg.ia.modelos_reserva = ['openai/gpt-oss-20b', 'qwen/qwen3.8-27b'];
+  const pedidos = IA.montarPedidos(cfg, 'tem estacionamento?', { agora: new Date('2026-11-10T22:30:00Z') });
+  assert.deepEqual(pedidos.map((p) => p.corpo.model), ['openai/gpt-oss-120b', 'openai/gpt-oss-20b', 'qwen/qwen3.8-27b']);
+  assert.deepEqual(pedidos.map((p) => p.corpo.reasoning_effort), ['low', 'low', undefined]);
+  assert.deepEqual(pedidos.map((p) => p.corpo.include_reasoning), [false, false, undefined]);
+  assert.ok(pedidos.every((p) => p.url === pedidos[0].url && p.tempoLimiteMs === pedidos[0].tempoLimiteMs));
+  assert.deepEqual(pedidos[0], IA.montarPedido(cfg, 'tem estacionamento?', { agora: new Date('2026-11-10T22:30:00Z') }));
+  assert.equal(IA.montarPedidos(exemplo(), 'oi tudo bem').length, 1);
+});
+
+test('deveTentarReserva: só falhas que outro modelo pode resolver', () => {
+  for (const motivo of ['erro_429', 'erro_500', 'erro_502', 'erro_503', 'erro_599', 'tempo_esgotado', 'erro', 'erro_de_rede', 'resposta_invalida']) {
+    assert.equal(IA.deveTentarReserva(motivo), true, motivo);
+  }
+  for (const motivo of ['sem_resposta', 'vazia', 'resposta_cortada', 'link_nao_confirmado', 'contato_nao_confirmado', 'preco_nao_confirmado',
+    'erro_400', 'erro_401', 'erro_403', 'erro_404', 'limite_por_contato', 'limite_do_dia', '', undefined]) {
+    assert.equal(IA.deveTentarReserva(motivo), false, String(motivo));
+  }
 });

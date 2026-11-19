@@ -24,7 +24,7 @@ const RESOLVIDO = "$('Resposta final').first().json";
 const PLANO_IA = "$('Resolver conversa').first().json.ia";
 const CHAVE_TRAVA = "={{ " + BASE + ".chaveConversa + ':trava' }}";
 // Deslocamento, na tela do n8n, dos nós que vêm depois do ramo da IA.
-const DX = 2200;
+const DX = 3600;
 
 // Bibliotecas de lib/ embutidas nos nós de código que as utilizam (o n8n não lê arquivos).
 const BIBLIOTECAS = {
@@ -34,13 +34,13 @@ const BIBLIOTECAS = {
 
 // ---------- utilitários ----------
 
-function codigo(arquivo) {
+function codigo(arquivo, prefixo = '') {
   let fonte = fs.readFileSync(path.join(DIR, 'codigo', arquivo), 'utf8').replace(/\r\n/g, '\n');
   const embutidas = (BIBLIOTECAS[arquivo] || []).map(([nome, biblioteca]) => {
     const corpo = fs.readFileSync(path.join(DIR, '../lib', biblioteca), 'utf8').replace(/\r\n/g, '\n');
     return 'const ' + nome + ' = (() => { const module = { exports: {} };\n' + corpo + '\nreturn module.exports; })();\n';
   });
-  fonte = embutidas.join('') + fonte;
+  fonte = embutidas.join('') + prefixo + fonte;
   // Confere a sintaxe do mesmo jeito que o n8n executa (dentro de uma função assíncrona).
   const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
   try {
@@ -61,8 +61,8 @@ function no(nome, tipo, versao, posicao, parametros, extras = {}) {
   return { parameters: parametros, id: uuid(), name: nome, type: tipo, typeVersion: versao, position: posicao, ...extras };
 }
 
-const noCodigo = (nome, posicao, arquivo) =>
-  no(nome, 'n8n-nodes-base.code', 2, posicao, { mode: 'runOnceForAllItems', jsCode: codigo(arquivo) });
+const noCodigo = (nome, posicao, arquivo, prefixo = '') =>
+  no(nome, 'n8n-nodes-base.code', 2, posicao, { mode: 'runOnceForAllItems', jsCode: codigo(arquivo, prefixo) });
 
 function condicoes(lista) {
   return {
@@ -100,6 +100,25 @@ function noWaha(nome, posicao, rota, corpo, extras = {}) {
     { credentials: CRED_WAHA, ...extras },
   );
 }
+
+// Chamada à API de IA com o corpo da tentativa n (0 = principal, 1 e 2 = reservas).
+const noIaGerar = (nome, posicao, n) => no(
+  nome,
+  'n8n-nodes-base.httpRequest',
+  4.2,
+  posicao,
+  {
+    method: 'POST',
+    url: '={{ ' + PLANO_IA + '.url }}',
+    authentication: 'genericCredentialType',
+    genericAuthType: 'httpHeaderAuth',
+    sendBody: true,
+    specifyBody: 'json',
+    jsonBody: '={{ JSON.stringify(' + PLANO_IA + '.pedidos[' + n + ']) }}',
+    options: { timeout: '={{ ' + PLANO_IA + '.tempoLimiteMs }}' },
+  },
+  { credentials: CRED_IA, onError: 'continueRegularOutput' },
+);
 
 const noRedis = (nome, posicao, parametros, extras = {}) =>
   no(nome, 'n8n-nodes-base.redis', 1, posicao, parametros, { credentials: CRED_REDIS, ...extras });
@@ -315,26 +334,18 @@ function workflowPrincipal() {
       operation: 'incr', key: '={{ ' + PLANO_IA + '.chaves.dia }}',
       expire: true, ttl: '={{ ' + PLANO_IA + '.ttl.dia }}',
     }),
-    // Uma tentativa, com tempo limite curto. Se falhar, o atendimento segue sem a IA.
-    no(
-      'IA: gerar resposta',
-      'n8n-nodes-base.httpRequest',
-      4.2,
-      [5140, -300],
-      {
-        method: 'POST',
-        url: '={{ ' + PLANO_IA + '.url }}',
-        authentication: 'genericCredentialType',
-        genericAuthType: 'httpHeaderAuth',
-        sendBody: true,
-        specifyBody: 'json',
-        jsonBody: '={{ JSON.stringify(' + PLANO_IA + '.corpo) }}',
-        options: { timeout: '={{ ' + PLANO_IA + '.tempoLimiteMs }}' },
-      },
-      { credentials: CRED_IA, onError: 'continueRegularOutput' },
-    ),
-    noCodigo('Aplicar resposta da IA', [5360, -300], 'aplicar-resposta-ia.js'),
-    noCodigo('Resposta final', [5580, -100], 'resposta-final.js'),
+    // Cada tentativa tem tempo limite curto. A cadeia é desenrolada (sem laço): principal e até
+    // duas reservas. Se tudo falhar, o atendimento segue sem a IA. O uso é contado uma vez
+    // por mensagem (nós acima), não por tentativa.
+    noIaGerar('IA: gerar resposta', [5140, -300], 0),
+    noCodigo('Aplicar resposta da IA', [5360, -300], 'aplicar-resposta-ia.js', 'const TENTATIVA = 0;\n'),
+    noSe('IA: tentar reserva 1?', [5580, -300], '={{ $json.ia.tentarReserva }}'),
+    noIaGerar('IA: gerar resposta (reserva 1)', [5800, -500], 1),
+    noCodigo('Aplicar resposta da IA (reserva 1)', [6020, -500], 'aplicar-resposta-ia.js', 'const TENTATIVA = 1;\n'),
+    noSe('IA: tentar reserva 2?', [6240, -500], '={{ $json.ia.tentarReserva }}'),
+    noIaGerar('IA: gerar resposta (reserva 2)', [6460, -700], 2),
+    noCodigo('Aplicar resposta da IA (reserva 2)', [6680, -700], 'aplicar-resposta-ia.js', 'const TENTATIVA = 2;\n'),
+    noCodigo('Resposta final', [6900, -100], 'resposta-final.js'),
 
     noRedis('Redis: contador de respostas iguais', [3600 + DX, -100], {
       operation: 'incr',
@@ -483,7 +494,15 @@ function workflowPrincipal() {
   ligar(c, 'Redis: contar uso da IA (contato)', 'Redis: contar uso da IA (dia)');
   ligar(c, 'Redis: contar uso da IA (dia)', 'IA: gerar resposta');
   ligar(c, 'IA: gerar resposta', 'Aplicar resposta da IA');
-  ligar(c, 'Aplicar resposta da IA', 'Resposta final');
+  ligar(c, 'Aplicar resposta da IA', 'IA: tentar reserva 1?');
+  ligar(c, 'IA: tentar reserva 1?', 'IA: gerar resposta (reserva 1)', 0);
+  ligar(c, 'IA: tentar reserva 1?', 'Resposta final', 1);
+  ligar(c, 'IA: gerar resposta (reserva 1)', 'Aplicar resposta da IA (reserva 1)');
+  ligar(c, 'Aplicar resposta da IA (reserva 1)', 'IA: tentar reserva 2?');
+  ligar(c, 'IA: tentar reserva 2?', 'IA: gerar resposta (reserva 2)', 0);
+  ligar(c, 'IA: tentar reserva 2?', 'Resposta final', 1);
+  ligar(c, 'IA: gerar resposta (reserva 2)', 'Aplicar resposta da IA (reserva 2)');
+  ligar(c, 'Aplicar resposta da IA (reserva 2)', 'Resposta final');
   ligar(c, 'Resposta final', 'Redis: contador de respostas iguais');
   ligar(c, 'Redis: contador de respostas iguais', 'Verificar limites');
   ligar(c, 'Verificar limites', 'Deve responder?');

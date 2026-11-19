@@ -35,7 +35,7 @@ let ia = { usar: false };
 if (IA.deveConsultar(resolvido.config, resolvido, base.texto)) {
   const conf = IA.configuracao(resolvido.config);
   const relogio = typeof $now !== 'undefined' && $now && typeof $now.toJSDate === 'function' ? $now : null;
-  const pedido = IA.montarPedido(resolvido.config, base.texto, {
+  const pedidos = IA.montarPedidos(resolvido.config, base.texto, {
     agora: relogio ? relogio.toJSDate() : new Date(),
     fuso: relogio ? relogio.zoneName : undefined,
     ultimaIntencao: estado && typeof estado.ultimaIntencao === 'string' ? estado.ultimaIntencao : '',
@@ -43,9 +43,11 @@ if (IA.deveConsultar(resolvido.config, resolvido, base.texto)) {
   const dia = relogio ? relogio.toFormat('yyyy-LL-dd') : new Date().toISOString().slice(0, 10);
   ia = {
     usar: true,
-    url: pedido.url,
-    corpo: pedido.corpo,
-    tempoLimiteMs: pedido.tempoLimiteMs,
+    url: pedidos[0].url,
+    // Um corpo para o modelo principal e um para cada modelo reserva (mesma URL e chave).
+    pedidos: pedidos.map((pedido) => pedido.corpo),
+    modelos: pedidos.map((pedido) => pedido.corpo.model),
+    tempoLimiteMs: pedidos[0].tempoLimiteMs,
     limites: { porContato: conf.maxUsosPorContato, porDia: conf.maxUsosPorDia },
     chaves: { contato: 'ia:contato:' + base.chatId, dia: 'ia:dia:' + dia },
     ttl: { contato: conf.janelaSegundos, dia: 172800 },

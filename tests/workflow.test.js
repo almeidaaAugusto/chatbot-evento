@@ -217,7 +217,15 @@ test('ramo da IA fica depois do contador por hora e confere os limites antes de 
   assert.equal(destino('Redis: contar uso da IA (contato)'), 'Redis: contar uso da IA (dia)');
   assert.equal(destino('Redis: contar uso da IA (dia)'), 'IA: gerar resposta');
   assert.equal(destino('IA: gerar resposta'), 'Aplicar resposta da IA');
-  assert.equal(destino('Aplicar resposta da IA'), 'Resposta final');
+  assert.equal(destino('Aplicar resposta da IA'), 'IA: tentar reserva 1?');
+  assert.equal(destino('IA: tentar reserva 1?', 0), 'IA: gerar resposta (reserva 1)');
+  assert.equal(destino('IA: tentar reserva 1?', 1), 'Resposta final');
+  assert.equal(destino('IA: gerar resposta (reserva 1)'), 'Aplicar resposta da IA (reserva 1)');
+  assert.equal(destino('Aplicar resposta da IA (reserva 1)'), 'IA: tentar reserva 2?');
+  assert.equal(destino('IA: tentar reserva 2?', 0), 'IA: gerar resposta (reserva 2)');
+  assert.equal(destino('IA: tentar reserva 2?', 1), 'Resposta final');
+  assert.equal(destino('IA: gerar resposta (reserva 2)'), 'Aplicar resposta da IA (reserva 2)');
+  assert.equal(destino('Aplicar resposta da IA (reserva 2)'), 'Resposta final');
   assert.equal(destino('Resposta final'), 'Redis: contador de respostas iguais');
   assert.equal(destino('Redis: contador de respostas iguais'), 'Verificar limites');
 
@@ -246,10 +254,26 @@ test('chamada à IA usa credencial própria, uma tentativa e nunca derruba o ate
   assert.notEqual(chamada.credentials.httpHeaderAuth.id, buscarNo('WAHA: enviar resposta').credentials.httpHeaderAuth.id);
   assert.equal(chamada.onError, 'continueRegularOutput');
   assert.ok(!chamada.retryOnFail, 'sem novas tentativas: cada uma gastaria a cota');
-  const plano = { ia: { url: 'https://api.exemplo/v1/chat/completions', corpo: { model: 'm', messages: [] }, tempoLimiteMs: 3000 } };
+  const plano = { ia: { url: 'https://api.exemplo/v1/chat/completions', pedidos: [{ model: 'm0', messages: [] }, { model: 'm1', messages: [] }, { model: 'm2', messages: [] }], tempoLimiteMs: 3000 } };
   assert.equal(avaliar(chamada.parameters.url, {}, plano), plano.ia.url);
-  assert.equal(avaliar(chamada.parameters.jsonBody, {}, plano), JSON.stringify(plano.ia.corpo));
+  assert.equal(avaliar(chamada.parameters.jsonBody, {}, plano), JSON.stringify(plano.ia.pedidos[0]));
   assert.equal(avaliar(chamada.parameters.options.timeout, {}, plano), 3000);
+  // As reservas repetem as opções do principal; só o corpo (pedidos[n]) muda.
+  ['IA: gerar resposta (reserva 1)', 'IA: gerar resposta (reserva 2)'].forEach((nome, i) => {
+    const reserva = buscarNo(nome);
+    assert.equal(reserva.type, 'n8n-nodes-base.httpRequest');
+    assert.deepEqual(reserva.credentials, chamada.credentials);
+    assert.equal(reserva.onError, 'continueRegularOutput');
+    assert.ok(!reserva.retryOnFail);
+    assert.equal(avaliar(reserva.parameters.url, {}, plano), plano.ia.url);
+    assert.equal(avaliar(reserva.parameters.jsonBody, {}, plano), JSON.stringify(plano.ia.pedidos[i + 1]));
+    assert.equal(avaliar(reserva.parameters.options.timeout, {}, plano), 3000);
+    assert.deepEqual({ ...reserva.parameters, url: 0, jsonBody: 0 }, { ...chamada.parameters, url: 0, jsonBody: 0 });
+  });
+  for (const nome of ['IA: tentar reserva 1?', 'IA: tentar reserva 2?']) {
+    assert.equal(avaliar(condicao(nome), { ia: { tentarReserva: true } }), true);
+    assert.equal(avaliar(condicao(nome), { ia: { tentarReserva: false } }), false);
+  }
   assert.ok(workflow.settings.executionTimeout > 30 + 10, 'o tempo limite da IA cabe na execução');
   const credenciais = fs.readFileSync(path.join(__dirname, '../n8n/init/gerar-credenciais.js'), 'utf8');
   assert.match(credenciais, /ChatbotIaApi0001/);
@@ -265,9 +289,11 @@ test('pedido à IA só é preparado para texto não reconhecido e não leva dado
   assert.deepEqual(duvida.ia.limites, { porContato: 4, porDia: 100000 });
   assert.deepEqual(duvida.ia.ttl, { contato: 3600, dia: 172800 });
   assert.equal(duvida.ia.tempoLimiteMs, 3000);
-  assert.equal(duvida.ia.corpo.model, 'modelo-de-teste');
-  assert.match(duvida.ia.corpo.messages[1].content, /^\[Agora: terça-feira, 10\/11\/2026, 19:30\]\nMensagem do cliente: vocês têm estacionamento por aí\?$/);
-  assert.doesNotMatch(JSON.stringify(duvida.ia.corpo), /5599012345|@c\.us/);
+  assert.equal(duvida.ia.pedidos[0].model, 'modelo-de-teste');
+  assert.deepEqual(duvida.ia.modelos, duvida.ia.pedidos.map(p => p.model));
+  assert.equal(duvida.ia.corpo, undefined, 'o campo antigo "corpo" foi substituído por "pedidos"');
+  assert.match(duvida.ia.pedidos[0].messages[1].content, /^\[Agora: terça-feira, 10\/11\/2026, 19:30\]\nMensagem do cliente: vocês têm estacionamento por aí\?$/);
+  assert.doesNotMatch(JSON.stringify(duvida.ia.pedidos), /5599012345|@c\.us/);
   assert.ok(duvida.resposta.trim(), 'a orientação normal fica pronta caso a IA não ajude');
 
   for (const texto of ['2', 'oi', 'obrigado', 'quais os valores e o endereço?', '12']) {
@@ -277,7 +303,7 @@ test('pedido à IA só é preparado para texto não reconhecido e não leva dado
   assert.equal(esgotado.silenciar, true);
   assert.equal(esgotado.ia.usar, true, 'a IA ainda pode ajudar depois das três orientações');
   const continuacao = await resolverNoWorkflow('e para estudante?', { conversa: JSON.stringify({ falhas: 0, ultimaIntencao: 'valores' }) });
-  assert.match(continuacao.ia.corpo.messages[1].content, /Assunto da resposta anterior: Valores dos ingressos/);
+  assert.match(continuacao.ia.pedidos[0].messages[1].content, /Assunto da resposta anterior: Valores dos ingressos/);
 
   const desligada = configDeTeste();
   desligada.ia.ativa = false;
@@ -300,12 +326,30 @@ test('limites da IA: por contato, por dia e sem gastar cota com quem já passou 
   assert.deepEqual(await conferir('3', '0'), { ...base.ia, liberada: false, resultado: 'limite_por_contato' });
   assert.deepEqual(await conferir('0', '10'), { ...base.ia, liberada: false, resultado: 'limite_do_dia' });
   assert.deepEqual(await conferir('0', '0', 41), { ...base.ia, liberada: false, resultado: undefined });
+
+  // Limite 0 = sem limite: nunca barra, mesmo com contadores altos.
+  const lerIa = async (planoIa, usosContato, usosDia) => (await codigoDoNo('Verificar limites da IA')(nome => ({ first: () => ({ json: {
+    'Resolver conversa': { ...base, ia: planoIa },
+    'Redis: usos da IA (contato)': { usosContato },
+    'Redis: usos da IA (dia)': { usosDia },
+    'Redis: contador por hora': { 'taxa:x': 1 },
+  }[nome] }) })))[0].json.ia;
+  const semLimite = { usar: true, limites: { porContato: 0, porDia: 0 } };
+  assert.deepEqual(await lerIa(semLimite, '0', '0'), { ...semLimite, liberada: true, resultado: undefined });
+  assert.equal((await lerIa(semLimite, '5000', '999999')).liberada, true);
+  const soDia = { usar: true, limites: { porContato: 0, porDia: 10 } };
+  assert.equal((await lerIa(soDia, '99', '9')).liberada, true);
+  assert.equal((await lerIa(soDia, '99', '10')).resultado, 'limite_do_dia');
+  const soContato = { usar: true, limites: { porContato: 3, porDia: 0 } };
+  assert.equal((await lerIa(soContato, '3', '999')).resultado, 'limite_por_contato');
+  assert.equal((await lerIa(soContato, '2', '999')).liberada, true);
 });
 
 test('resposta da IA substitui a orientação e reinicia o fallback; falha mantém a orientação', async () => {
   const base = { ...mensagemBase('duvida'), intencao: 'nao_entendi', origem: 'fallback_esgotado', resposta: '', silenciar: true,
     motivo: 'fallback_esgotado', transferir: false, estado: { falhas: 3 }, valorConversa: '{"falhas":3}', ttlConversa: 1800,
-    sessao: 'default', chaves: { iguais: 'rep:default:5599012345@c.us:nao_entendi:abc' }, ia: { usar: true, liberada: true } };
+    sessao: 'default', chaves: { iguais: 'rep:default:5599012345@c.us:nao_entendi:abc' },
+    ia: { usar: true, liberada: true, modelos: ['m0', 'm1', 'm2'], pedidos: [{ model: 'm0' }, { model: 'm1' }, { model: 'm2' }] } };
   const aplicar = async corpo => (await codigoDoNo('Aplicar resposta da IA')(
     () => ({ first: () => ({ json: base }) }), { first: () => ({ json: corpo }) }))[0].json;
 
@@ -317,6 +361,9 @@ test('resposta da IA substitui a orientação e reinicia o fallback; falha mant�
   assert.equal(ok.motivo, undefined);
   assert.equal(ok.transferir, false);
   assert.equal(ok.ia.resultado, 'respondeu');
+  assert.equal(ok.ia.modelo, 'm0');
+  assert.deepEqual(ok.ia.tentativas, []);
+  assert.equal(ok.ia.tentarReserva, false);
   assert.deepEqual(Object.keys(ok.estado).sort(), ['falhas', 'pendentes', 'ultimaIntencao', 'ultimaResposta']);
   assert.equal(ok.estado.falhas, 0);
   assert.equal(ok.estado.ultimaIntencao, 'ia');
@@ -333,6 +380,8 @@ test('resposta da IA substitui a orientação e reinicia o fallback; falha mant�
   ]) {
     const falhou = await aplicar(corpo);
     assert.equal(falhou.ia.resultado, resultado);
+    assert.deepEqual(falhou.ia.tentativas, [{ modelo: 'm0', motivo: resultado }]);
+    assert.equal(falhou.ia.tentarReserva, ['erro_429', 'tempo_esgotado', 'resposta_invalida'].includes(resultado), resultado);
     assert.equal(falhou.intencao, 'nao_entendi');
     assert.equal(falhou.silenciar, true);
     assert.equal(falhou.valorConversa, base.valorConversa);
@@ -340,11 +389,46 @@ test('resposta da IA substitui a orientação e reinicia o fallback; falha mant�
   }
 });
 
+test('cadeia de reservas: cada "Aplicar" acumula as falhas e só segue para a reserva quando vale a pena', async () => {
+  const base = { ...mensagemBase('duvida'), intencao: 'nao_entendi', origem: 'fallback_esgotado', resposta: '', silenciar: true,
+    motivo: 'fallback_esgotado', transferir: false, estado: { falhas: 3 }, valorConversa: '{"falhas":3}', ttlConversa: 1800,
+    sessao: 'default', chaves: { iguais: 'rep:default:5599012345@c.us:nao_entendi:abc' },
+    ia: { usar: true, liberada: true, modelos: ['m0', 'm1', 'm2'], pedidos: [{ model: 'm0' }, { model: 'm1' }, { model: 'm2' }] } };
+  const aplicar = async (nome, anteriores, corpo, origem = base) => (await codigoDoNo(nome)(
+    n => ({ first: () => ({ json: anteriores[n] ?? origem }) }), { first: () => ({ json: corpo }) }))[0].json;
+  const erro429 = { error: { httpCode: '429', message: 'Too many requests' } };
+  const p = await aplicar('Aplicar resposta da IA', {}, erro429);
+  assert.equal(p.ia.tentarReserva, true);
+  const r1 = await aplicar('Aplicar resposta da IA (reserva 1)', { 'Aplicar resposta da IA': p }, erro429);
+  assert.deepEqual(r1.ia.tentativas, [{ modelo: 'm0', motivo: 'erro_429' }, { modelo: 'm1', motivo: 'erro_429' }]);
+  assert.equal(r1.ia.tentarReserva, true);
+  const r2 = await aplicar('Aplicar resposta da IA (reserva 2)', { 'Aplicar resposta da IA (reserva 1)': r1 }, erro429);
+  assert.equal(r2.ia.tentativas.length, 3);
+  assert.equal(r2.ia.tentarReserva, false, 'não existe reserva 3');
+  assert.equal(r2.intencao, 'nao_entendi', 'tudo falhou: vale a orientação normal');
+  assert.equal(r2.ia.resultado, 'erro_429');
+
+  const certa = { choices: [{ message: { content: 'Ainda não foi divulgado.' }, finish_reason: 'stop' }] };
+  const r1ok = await aplicar('Aplicar resposta da IA (reserva 1)', { 'Aplicar resposta da IA': p }, certa);
+  assert.equal(r1ok.intencao, 'ia');
+  assert.equal(r1ok.ia.modelo, 'm1');
+  assert.equal(r1ok.ia.tentativas.length, 1);
+  assert.equal(r1ok.ia.tentarReserva, false);
+
+  const semResp = await aplicar('Aplicar resposta da IA', {}, { choices: [{ message: { content: '[[SEM_RESPOSTA]]' } }] });
+  assert.equal(semResp.ia.tentarReserva, false, 'sem_resposta não tenta outro modelo');
+  const unico = { ...base, ia: { ...base.ia, pedidos: [{ model: 'm0' }], modelos: ['m0'] } };
+  const sozinho = await aplicar('Aplicar resposta da IA', {}, erro429, unico);
+  assert.equal(sozinho.ia.tentarReserva, false, 'sem reservas configuradas');
+});
+
 test('resposta final escolhe o caminho percorrido e não leva adiante o pedido enviado à IA', async () => {
   const fontes = {
     'Resolver conversa': { resposta: 'orientação', ia: { usar: true, url: 'http://ia', corpo: { messages: ['TEXTO DO CLIENTE'] }, limites: {} } },
     'Verificar limites da IA': { resposta: 'orientação', ia: { usar: true, url: 'http://ia', corpo: { messages: ['TEXTO DO CLIENTE'] }, resultado: 'limite_por_contato' } },
     'Aplicar resposta da IA': { resposta: 'resposta da IA', ia: { usar: true, url: 'http://ia', corpo: { messages: ['TEXTO DO CLIENTE'] }, resultado: 'respondeu' } },
+    'Aplicar resposta da IA (reserva 1)': { resposta: 'resposta da reserva 1', ia: { usar: true, url: 'http://ia', pedidos: [{ messages: ['TEXTO DO CLIENTE'] }], resultado: 'respondeu', modelo: 'm1' } },
+    'Aplicar resposta da IA (reserva 2)': { resposta: 'resposta da reserva 2', ia: { usar: true, url: 'http://ia', pedidos: [{ messages: ['TEXTO DO CLIENTE'] }], resultado: 'respondeu', modelo: 'm2' } },
   };
   const final = async executados => (await codigoDoNo('Resposta final')(nome => ({
     isExecuted: executados.includes(nome), first: () => ({ json: fontes[nome] }),
@@ -357,7 +441,13 @@ test('resposta final escolhe o caminho percorrido e não leva adiante o pedido e
   const respondida = await final(['Resolver conversa', 'Verificar limites da IA', 'Aplicar resposta da IA']);
   assert.equal(respondida.resposta, 'resposta da IA');
   assert.equal(respondida.ia.resultado, 'respondeu');
-  for (const saida of [semIa, barrada, respondida]) {
+  const viaReserva1 = await final(['Resolver conversa', 'Verificar limites da IA', 'Aplicar resposta da IA', 'Aplicar resposta da IA (reserva 1)']);
+  assert.equal(viaReserva1.resposta, 'resposta da reserva 1');
+  const viaReserva2 = await final(['Resolver conversa', 'Verificar limites da IA', 'Aplicar resposta da IA', 'Aplicar resposta da IA (reserva 1)', 'Aplicar resposta da IA (reserva 2)']);
+  assert.equal(viaReserva2.resposta, 'resposta da reserva 2');
+  assert.equal(viaReserva2.ia.modelo, 'm2');
+  for (const saida of [semIa, barrada, respondida, viaReserva1, viaReserva2]) {
+    assert.equal(saida.ia.pedidos, undefined);
     assert.equal(saida.ia.corpo, undefined);
     assert.equal(saida.ia.url, undefined);
     assert.doesNotMatch(JSON.stringify(saida), /TEXTO DO CLIENTE/);
@@ -386,6 +476,13 @@ test('limites gerais e log leem a resposta final e registram só o resultado da 
   assert.equal(respondida.motivo, 'ia');
   assert.equal(respondida.ia, 'respondeu');
   assert.doesNotMatch(JSON.stringify(respondida), /SECRET|5599012345/);
+  assert.equal(respondida.iaModelo, undefined);
+  assert.equal(respondida.iaTentativas, undefined);
+  const viaReserva = await registrar({ ...final, ia: { usar: true, resultado: 'respondeu', modelo: 'm1', tentativas: [{ modelo: 'm0', motivo: 'erro_429' }] } },
+    ['Resolver conversa', 'Resposta final', 'Verificar limites', 'WAHA: enviar resposta']);
+  assert.equal(viaReserva.iaModelo, 'm1');
+  assert.equal(viaReserva.iaTentativas, 1);
+  assert.doesNotMatch(JSON.stringify(viaReserva), /SECRET|5599012345/);
   const semIa = await registrar({ ...final, intencao: 'valores', origem: 'numero', ia: { usar: false } },
     ['Resolver conversa', 'Resposta final', 'Verificar limites', 'WAHA: enviar resposta']);
   assert.equal(semIa.ia, undefined);

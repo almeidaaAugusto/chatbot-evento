@@ -345,6 +345,7 @@ function renderizarProdutora() {
 function campoIA({ titulo, tipo = 'texto', chave, ajuda, opcoes, minimo, maximo, passo, linhas, largo }) {
   const ia = iaEditada();
   if (tipo === 'texto') return campo({ titulo, valor: ia[chave] || '', linhas, classe: largo ? 'campo-largo' : '', ajuda, mudar: valor => { if (valor.trim()) ia[chave] = valor; else delete ia[chave]; } });
+  if (tipo === 'lista_texto') return campo({ titulo, valor: Array.isArray(ia[chave]) ? ia[chave].join(', ') : '', ajuda, mudar: valor => { ia[chave] = [...new Set(valor.split(',').map(item => item.trim()).filter(Boolean))]; } });
   const label = document.createElement('label');
   label.className = 'campo' + (tipo === 'marcar' ? ' campo-marcar campo-largo' : '');
   const input = document.createElement(tipo === 'lista' ? 'select' : 'input');
@@ -380,9 +381,10 @@ function renderizarIA() {
   grade.append(
     campoIA({ titulo: 'Provedor', tipo: 'lista', chave: 'provedor', opcoes: [['groq', 'Groq (gratuito, com cota)'], ['xai', 'xAI · Grok (pago)']], ajuda: 'A chave fica no arquivo .env, nunca neste painel.' }),
     campoIA({ titulo: 'Modelo', chave: 'modelo', ajuda: 'Vazio usa o padrão: openai/gpt-oss-120b (Groq) ou grok-4.3 (xAI).' }),
-    campoIA({ titulo: 'Usos da IA por contato', tipo: 'numero', chave: 'max_usos_por_contato', minimo: 0, maximo: 1000, ajuda: 'Padrão 3. Depois disso o contato recebe as orientações normais.' }),
+    campoIA({ titulo: 'Modelos reserva', tipo: 'lista_texto', chave: 'modelos_reserva', ajuda: 'Até 2 modelos, separados por vírgula. Usados em ordem quando o principal falha por cota (429), erro do servidor ou tempo esgotado. Mesma chave e mesmo endereço.' }),
+    campoIA({ titulo: 'Usos da IA por contato', tipo: 'numero', chave: 'max_usos_por_contato', minimo: 0, maximo: 1000, ajuda: 'Quantas vezes cada contato pode usar a IA por janela. 0 = sem limite. Se ausente, o padrão é 3.' }),
     campoIA({ titulo: 'Zerar o contador do contato após (horas)', tipo: 'numero', chave: 'janela_horas', minimo: 0.25, maximo: 720, passo: 0.25, ajuda: 'Padrão 12 horas sem usar a IA.' }),
-    campoIA({ titulo: 'Usos da IA por dia (todos os contatos)', tipo: 'numero', chave: 'max_usos_por_dia', minimo: 0, maximo: 1000000, ajuda: 'Padrão 80. Protege a cota gratuita da API.' }),
+    campoIA({ titulo: 'Usos da IA por dia (todos os contatos)', tipo: 'numero', chave: 'max_usos_por_dia', minimo: 0, maximo: 1000000, ajuda: '0 = sem limite. Se ausente, o padrão é 80.' }),
     campoIA({ titulo: 'Tamanho máximo da resposta (caracteres)', tipo: 'numero', chave: 'tamanho_maximo_resposta', minimo: 120, maximo: 3000, ajuda: 'Padrão 600.' }),
   );
   const conhecimento = campoIA({ titulo: multi() ? 'Informações extras da produtora (valem para todos os eventos)' : 'Informações extras para a IA', chave: 'conhecimento', linhas: true, largo: true, ajuda: 'Tudo o que a IA pode usar além dos dados do evento e das respostas. Liste também o que ainda não foi divulgado, para ela não inventar.' });

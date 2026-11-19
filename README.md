@@ -389,13 +389,20 @@ Quando o motor de regras não reconhece um texto (por exemplo "tem estacionament
   e-mails, telefones e valores em R$ precisam existir no conteúdo cadastrado. Se a IA citar
   algo que não está lá, a resposta é descartada. Respostas longas são cortadas no fim de uma
   frase e ganham o rodapé `ia.rodape`.
-- **Limites (para não estourar a cota gratuita).** Cada contato pode usar a IA **3 vezes**; o
-  contador zera **12 horas** depois do último uso. No total, no máximo **80 consultas por dia**
-  (cada consulta gasta ~2.500 tokens; a Groq gratuita dá 200 mil tokens/dia neste modelo).
-  Depois do limite, o contato recebe as orientações normais. Ajuste no painel (seção 05) ou em
-  `ia.max_usos_por_contato`, `ia.janela_horas` e `ia.max_usos_por_dia`.
-- **Falhas.** Uma tentativa só, com tempo limite de 12 s. Se a API estiver fora do ar, sem
-  cota (erro 429) ou lenta, o contato recebe a orientação normal e o atendimento continua.
+- **Limites.** `ia.max_usos_por_contato` (usos por contato) e `ia.max_usos_por_dia` (usos somando
+  todos os contatos) aceitam **0 = sem limite**. O contador por contato zera `ia.janela_horas`
+  horas (12 por padrão) depois do último uso. Com limite maior que 0, quando ele é atingido o
+  contato recebe as orientações normais. A única forma de desligar a IA é `ia.ativa: false`;
+  os contadores continuam servindo de estatística. Ajuste no painel (seção 05) ou nesses campos.
+  Cada consulta gasta ~2.500 tokens, e a cota da Groq gratuita vale por modelo.
+- **Modelos reserva (`ia.modelos_reserva`, opcional, padrão `[]`).** Lista de até 2 modelos,
+  sem repetir o principal (`ia.modelo`). Se o principal falhar por cota (429), erro do servidor
+  (5xx), tempo esgotado ou falha de rede, o robô tenta as reservas em ordem, com a mesma chave e
+  o mesmo endereço. Cada modelo da Groq gratuita tem cota própria, então cada reserva soma
+  capacidade. Respostas `[[SEM_RESPOSTA]]`, vazias ou com dado não confirmado **não** tentam
+  reserva, nem erros de chave (400, 401, 403).
+- **Falhas.** Cada tentativa tem tempo limite de 12 s. Se todos os modelos falharem, o contato
+  recebe a orientação normal e o atendimento continua.
 - **Privacidade.** A IA recebe **só o texto da mensagem** (nunca o telefone ou o nome do
   contato) e nenhuma conversa anterior. O texto vai para o servidor da Groq, nos EUA.
 

@@ -234,7 +234,15 @@ test('validação da seção de IA aponta valores fora do formato', () => {
     assert.ok(erros.some(erro => erro.includes(trecho)), trecho);
   }
   assert.ok(validarConfig(comIA({ conhecimento: 'Veja {{inexistente}}' })).erros.some(erro => erro.includes('inexistente')));
-  assert.ok(validarConfig(comIA({ max_usos_por_dia: 0 })).avisos.some(aviso => aviso.includes('nunca será consultada')));
+  const semLimite = validarConfig(comIA({ max_usos_por_contato: 0, max_usos_por_dia: 0 }));
+  assert.deepEqual(semLimite.erros, []);
+  assert.ok(!semLimite.avisos.some(aviso => aviso.includes('nunca será consultada')), '0 = sem limite, não há mais aviso');
+  assert.deepEqual(validarConfig(comIA({ modelos_reserva: ['openai/gpt-oss-20b', 'qwen/qwen3.8-27b'] })).erros, []);
+  assert.deepEqual(validarConfig(comIA({ modelos_reserva: [] })).erros, []);
+  for (const ruim of ['openai/gpt-oss-20b', [1], [''], ['a', 'b', 'c'], ['a', 'a'], ['openai/gpt-oss-120b']]) {
+    assert.ok(validarConfig(comIA({ modelos_reserva: ruim })).erros.some(erro => erro.includes('ia.modelos_reserva')), JSON.stringify(ruim));
+  }
+  assert.ok(validarConfig(comIA({ modelo: 'm1', modelos_reserva: ['m1'] })).erros.some(erro => erro.includes('ia.modelos_reserva')));
 });
 
 // ---------- página "Conversas" (registros gravados pelo n8n) ----------
@@ -513,4 +521,20 @@ test('conversas: o registro mantém a sessao e o mesmo contato em dois números 
   const r = await requisicao(url, '/api/conversas?dia=2026-11-11');
   assert.deepEqual(r.dados.registros.map(x => x.sessao), ['default', 'festival', undefined]);
   assert.equal(new Set(r.dados.registros.map(x => (x.sessao || '') + '|' + x.conversa)).size, 3);
+});
+
+// ---------- telas do painel (verificação de texto, sem navegador) ----------
+
+test('painel: campo de modelos reserva da IA existe e os limites explicam que 0 = sem limite', async () => {
+  const app = await fs.readFile(path.join(__dirname, '..', 'painel', 'public', 'app.js'), 'utf8');
+  const conversas = await fs.readFile(path.join(__dirname, '..', 'painel', 'public', 'conversas.js'), 'utf8');
+  assert.ok(app.includes("chave: 'modelos_reserva'"), 'campo modelos_reserva');
+  assert.ok(app.includes("tipo: 'lista_texto'"), 'tipo lista_texto');
+  assert.ok(app.includes('ia[chave] = [...new Set(valor.split'));
+  assert.ok(app.includes(".join(', ')"), 'exibe modelos separados por vírgula');
+  assert.ok(app.includes('0 = sem limite. Se ausente, o padrão é 3.'), 'ajuda do limite por contato');
+  assert.ok(app.includes('0 = sem limite. Se ausente, o padrão é 80.'), 'ajuda do limite diário');
+  assert.ok(conversas.includes('sem limite'), 'medidor diário mostra sem limite');
+  assert.ok(conversas.includes('semLimite'), 'medidor diário trata 0 explícito');
+  assert.ok(!/Number\(ia\.max_usos_por_dia\) \|\| 80/.test(conversas), 'não usa || 80 (que trataria 0 como ausente)');
 });

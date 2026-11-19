@@ -46,7 +46,8 @@ function situacao(cfg, chave) {
   console.log('IA ligada no chatbot: ' + (conf.ativa ? 'sim' : 'não'));
   console.log('Provedor: ' + IA.PROVEDORES[conf.provedor].nome + ' · modelo ' + conf.modelo);
   console.log('Chave no .env: ' + (chave ? 'sim (' + (IA.provedorDaChave(chave) || 'formato desconhecido') + ', termina em ' + chave.slice(-4) + ')' : 'não'));
-  console.log('Limites: ' + conf.maxUsosPorContato + ' uso(s) por contato a cada ' + conf.janelaSegundos / 3600 + ' h; ' + conf.maxUsosPorDia + ' por dia no total.');
+  const sem = (n) => (n === 0 ? 'sem limite' : String(n));
+  console.log('Limites: ' + sem(conf.maxUsosPorContato) + ' uso(s) por contato a cada ' + conf.janelaSegundos / 3600 + ' h; ' + sem(conf.maxUsosPorDia) + ' por dia no total.');
 }
 
 async function main(acao) {

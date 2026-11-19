@@ -107,7 +107,7 @@ async function simularConversa(dados, { chaveIA, fetchIA, usosRecentes }) {
   const conf = IA.configuracao(configUsada);
   const informar = (resultado) => ({ ...saida, usosIA: usos, ia: { resultado } });
   if (!chaveIA) return informar('sem_chave');
-  if (usos >= conf.maxUsosPorContato) return informar('limite_por_contato');
+  if (conf.maxUsosPorContato > 0 && usos >= conf.maxUsosPorContato) return informar('limite_por_contato');
   const agora = Date.now();
   while (usosRecentes.length && agora - usosRecentes[0] > 3600 * 1000) usosRecentes.shift();
   if (usosRecentes.length >= LIMITE_IA_SIMULADOR) return informar('limite_do_simulador');

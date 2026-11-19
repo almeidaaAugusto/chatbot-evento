@@ -788,6 +788,8 @@ async function principal() {
     const m = await confereResposta({ de, texto: 'IA responde ' + marca, intencao: 'ia', resposta: respostaIA(marca) });
     igual(m.linha.motivo, 'ia', 'motivo no log');
     igual(m.linha.ia, 'respondeu', 'resultado da IA no log');
+    igual(m.linha.iaModelo, 'modelo-de-teste', 'modelo que respondeu no log');
+    igual(m.linha.iaTentativas, undefined, 'nenhuma tentativa falhou');
     const pedidos = await pedidosIACom(marca);
     igual(pedidos.length, 1, 'uma única chamada à IA');
     verdadeiro(pedidos[0].chaveOk, 'a chamada deveria levar a chave da IA');
@@ -822,17 +824,22 @@ async function principal() {
     const outro = novaMarca();
     await confereResposta({ texto: 'ia responde ' + outro, intencao: 'ia', resposta: respostaIA(outro) });
   });
-  for (const [texto, esperado, descricao] of [
-    ['ia erro interno', 'erro_500', 'IA fora do ar (erro 500)'],
-    ['ia limite da api', 'erro_429', 'cota da API esgotada (erro 429)'],
-    ['ia inventa link', 'link_nao_confirmado', 'resposta da IA com link que não está cadastrado'],
+  for (const [texto, esperado, descricao, esperadas] of [
+    // Erro 5xx e 429 tentam os dois modelos reserva (3 chamadas); dado não confirmado não tenta.
+    ['ia erro interno', 'erro_500', 'IA fora do ar em todos os modelos (erro 500)', 3],
+    ['ia limite da api', 'erro_429', 'cota esgotada em todos os modelos (erro 429)', 3],
+    ['ia inventa link', 'link_nao_confirmado', 'resposta da IA com link que não está cadastrado', 1],
   ]) {
     await teste(descricao + ' -> orientação normal, sem derrubar o atendimento', async () => {
       const antes = lerLog('erros').length;
       const marca = novaMarca();
       const m = await confereResposta({ texto: texto + ' ' + marca, intencao: 'nao_entendi' });
       igual(m.linha.ia, esperado, 'resultado da IA no log');
-      igual((await pedidosIACom(marca)).length, 1, 'uma tentativa só, sem repetir');
+      const pedidos = await pedidosIACom(marca);
+      igual(pedidos.length, esperadas, 'quantidade de chamadas à IA');
+      // Toda chamada que não gerou resposta conta como tentativa que falhou.
+      igual(m.linha.iaTentativas, esperadas, 'tentativas que falharam no log');
+      igual(m.linha.iaModelo, undefined, 'nenhum modelo respondeu');
       igual(lerLog('erros').length, antes, 'não deve virar erro do workflow');
       await confereResposta({ de: m.conversa, texto: '3', intencao: 'local' });
     });
@@ -842,7 +849,43 @@ async function principal() {
     const inicio = Date.now();
     const m = await confereResposta({ texto: 'ia lenta ' + marca, intencao: 'nao_entendi' });
     igual(m.linha.ia, 'tempo_esgotado', 'resultado da IA no log');
-    verdadeiro(Date.now() - inicio < 15000, 'o contato não pode esperar a IA indefinidamente');
+    verdadeiro(Date.now() - inicio < 30000, 'o contato não pode esperar a IA indefinidamente (3 tentativas de 3 s)');
+  });
+  await teste('principal com 429 -> a reserva 1 responde', async () => {
+    const marca = novaMarca();
+    const m = await confereResposta({ texto: 'ia principal limite ' + marca, intencao: 'ia', resposta: respostaIA(marca) });
+    igual(m.linha.ia, 'respondeu', 'resultado da IA no log');
+    igual(m.linha.iaModelo, 'reserva-1-de-teste', 'modelo que respondeu no log');
+    igual(m.linha.iaTentativas, 1, 'uma tentativa falhou antes');
+    const pedidos = await pedidosIACom(marca);
+    igual(pedidos.map((p) => p.corpo.model).join(','), 'modelo-de-teste,reserva-1-de-teste', 'ordem dos modelos');
+    verdadeiro(pedidos.every((p) => p.chaveOk), 'as reservas usam a mesma chave');
+  });
+  await teste('principal e reserva 1 com 429 -> a reserva 2 responde', async () => {
+    const marca = novaMarca();
+    const m = await confereResposta({ texto: 'ia duas limite ' + marca, intencao: 'ia', resposta: respostaIA(marca) });
+    igual(m.linha.iaModelo, 'reserva-2-de-teste', 'modelo que respondeu no log');
+    igual(m.linha.iaTentativas, 2, 'duas tentativas falharam antes');
+    const pedidos = await pedidosIACom(marca);
+    igual(pedidos.map((p) => p.corpo.model).join(','), 'modelo-de-teste,reserva-1-de-teste,reserva-2-de-teste', 'ordem dos modelos');
+  });
+  await teste('reserva usada conta uma vez só no limite do contato', async () => {
+    const de = novaConversa();
+    for (let i = 1; i <= cfg.ia.max_usos_por_contato; i += 1) {
+      const marca = novaMarca();
+      await confereResposta({ de, texto: 'ia principal limite ' + marca, intencao: 'ia', resposta: respostaIA(marca) });
+    }
+    const extra = novaMarca();
+    const m = await confereResposta({ de, texto: 'ia principal limite ' + extra, intencao: 'nao_entendi' });
+    igual(m.linha.ia, 'limite_por_contato', 'o limite conta mensagens, não tentativas');
+    igual((await pedidosIACom(extra)).length, 0, 'nenhuma chamada depois do limite');
+  });
+  await teste('sem_resposta no principal -> não tenta modelo reserva', async () => {
+    const marca = novaMarca();
+    await confereResposta({ texto: 'xyzzy plugh ' + marca, intencao: 'nao_entendi' });
+    const pedidos = await pedidosIACom(marca);
+    igual(pedidos.length, 1, 'só o principal foi consultado');
+    igual(pedidos[0].corpo.model, 'modelo-de-teste', 'modelo principal');
   });
   await teste('IA ainda ajuda depois das três orientações, e a sequência recomeça', async () => {
     const de = novaConversa();

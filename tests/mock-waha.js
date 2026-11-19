@@ -27,6 +27,13 @@ function responderComoIA(res, corpo) {
     choices: [{ index: 0, message: { role: 'assistant', content: texto }, finish_reason: 'stop' }],
     usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
   });
+  // Falhas por modelo: o principal é o "modelo" da configuração de teste e há duas reservas.
+  const principal = corpo.model === 'modelo-de-teste';
+  const reserva2 = corpo.model === 'reserva-2-de-teste';
+  const limite = () => responder(res, 429, { error: { message: 'Rate limit reached (simulado) para ' + corpo.model } });
+  const certa = () => conteudo('**Resposta de teste da IA** para o pedido ' + cliente.split(' ').pop() + '.');
+  if (cliente.startsWith('ia principal limite')) return principal ? limite() : certa();
+  if (cliente.startsWith('ia duas limite')) return reserva2 ? certa() : limite();
   if (cliente.startsWith('ia responde')) return conteudo('**Resposta de teste da IA** para o pedido ' + cliente.split(' ').pop() + '.');
   if (cliente.startsWith('ia inventa link')) return conteudo('Compre agora em https://exemplo.invalid/ingresso-falso');
   if (cliente.startsWith('ia erro')) return responder(res, 500, { error: { message: 'falha simulada da IA' } });
