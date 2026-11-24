@@ -179,7 +179,10 @@ if ($Enviar) {
     } finally { Remove-Item -LiteralPath $tar -Force -ErrorAction SilentlyContinue }
 
     # config\chatbot.json do servidor e a versao viva (editada pelo painel): so entra na primeira vez.
-    $excluir = if ($temConfig) { '--exclude=config/chatbot.json' } else { '' }
+    # O exemplo nunca vai: o servidor nao precisa dele e a pasta config/ pertence ao usuario do
+    # conteiner (uid 1000), entao gravar arquivo novo ali falharia ("Permission denied").
+    $excluir = '--exclude=config/chatbot.exemplo.json'
+    if ($temConfig) { $excluir += ' --exclude=config/chatbot.json' }
     if ($temConfig) { Write-Host 'config\chatbot.json do servidor preservado (nao foi sobrescrito).' }
     else { Write-Host 'Primeira vez: o servidor ainda nao tem config\chatbot.json (ele nao vai no git); sera enviado logo depois do codigo.' }
     # --no-overwrite-dir -m: nao mexe em dono/data de pastas que ja existem (a pasta config e gravada pelo painel).
