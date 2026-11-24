@@ -18,7 +18,8 @@ try {
 } catch (e) {
   score = undefined;
 }
-const lida = IA.interpretarResposta(base.config, $input.first().json ?? {}, redigir ? { opcao: base.ia.opcao } : {});
+// Rodapé: com a conversa natural só na primeira resposta (histórico vazio, calculado no "Resolver conversa").
+const lida = IA.interpretarResposta(base.config, $input.first().json ?? {}, { ...(redigir ? { opcao: base.ia.opcao } : {}), primeira: base.ia.primeira !== false });
 
 if (!lida.ok) {
   const tentativas = [...falhas, { modelo, motivo: lida.motivo }];

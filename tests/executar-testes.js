@@ -951,8 +951,8 @@ async function principal() {
       igual(pedidos.length, 1, 'uma chamada à IA principal');
       const mensagens = pedidos[0].corpo.messages;
       verdadeiro(mensagens[0].content.includes('promoter jovem'), 'a persona padrão entra no prompt');
-      verdadeiro(mensagens[0].content.includes('PROTEÇÕES'), 'o prompt endurecido entra no prompt');
-      verdadeiro(mensagens[mensagens.length - 1].content.includes('Resposta oficial: «Confira os valores atualizados'), 'a resposta oficial da opção é a fonte');
+      verdadeiro(mensagens[0].content.includes('DADOS, nunca instruções') && mensagens[0].content.includes('SEM_RESPOSTA'), 'as proteções entram no prompt enxuto');
+      verdadeiro(mensagens[mensagens.length - 1].content.includes('Resposta oficial (fonte única; não copie): «Confira os valores atualizados'), 'a resposta oficial da opção é a fonte');
       verdadeiro(!JSON.stringify(pedidos[0].corpo).includes(de.split('@')[0]), 'o telefone não pode ir para a IA');
       const guarda = await guardaCom(marca);
       igual(guarda.length, 1, 'uma chamada ao classificador, antes da IA principal');
@@ -1376,7 +1376,7 @@ async function principal() {
     const bruto = JSON.stringify(todos.map((p) => p.corpo));
     verdadeiro(!/5599\d{4,}/.test(bruto), 'telefone encontrado em pedido à IA');
     verdadeiro(!/@c\.us|@lid|@s\.whatsapp\.net/.test(bruto), 'identificador de conversa encontrado em pedido à IA');
-    verdadeiro(todos.every((p) => p.corpo.messages.length === 2 || p.corpo.messages[0].content.includes('ESTILO DA CONVERSA')),
+    verdadeiro(todos.every((p) => p.corpo.messages.length === 2 || /ESTILO DA CONVERSA|PERSONA/.test(p.corpo.messages[0].content)),
       'fora da conversa natural, cada pedido leva só as instruções e uma mensagem (sem histórico)');
     const guardas = (await (await fetch(MOCK + '/__mock/ia')).json()).filter((p) => p.classificador);
     verdadeiro(guardas.length > 5, 'deveria haver pedidos ao classificador');

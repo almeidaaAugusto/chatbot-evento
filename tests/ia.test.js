@@ -536,7 +536,7 @@ test('persona: vem da configuração (aparado) ou do padrão do promoter', () =>
   comPersona.ia.persona = 'Fale como um guia.';
   assert.ok(IA.promptDoSistema(comPersona).includes('ESTILO DA CONVERSA'));
   assert.ok(IA.promptDoSistema(comPersona).endsWith('Fale como um guia.\n\nINFORMAÇÕES OFICIAIS\n' + IA.conhecimentoDoEvento(comPersona)));
-  assert.match(IA.promptDoSistema(comPersona), /Responda em até 3 mensagens curtas/);
+  assert.match(IA.promptDoSistema(comPersona), /em até 3 mensagens separadas por uma linha só com ---/);
   assert.doesNotMatch(IA.promptDoSistema(exemplo()), /ESTILO DA CONVERSA/);
 });
 
@@ -572,7 +572,9 @@ test('dividirMensagens separa por linha com --- e junta o excesso na última', (
   assert.deepEqual(IA.dividirMensagens('a\n---\nb', 1), ['a\n\nb']);
   assert.deepEqual(IA.dividirMensagens('a\r\n---\r\nb'), ['a', 'b']);
   assert.deepEqual(IA.dividirMensagens('a\n  ---  \nb'), ['a', 'b']);
-  assert.deepEqual(IA.dividirMensagens('a --- b'), ['a --- b'], 'traço no meio da linha não separa');
+  // Visto na bateria real: o modelo às vezes escreve o separador no meio da frase.
+  assert.deepEqual(IA.dividirMensagens('Sim, precisa de documento. --- Faixa etária é +18.'), ['Sim, precisa de documento.', 'Faixa etária é +18.'], 'separador cercado de espaços separa');
+  assert.deepEqual(IA.dividirMensagens('a---b'), ['a---b'], 'traço colado em palavras não separa');
   assert.deepEqual(IA.dividirMensagens('  oi  '), ['oi']);
   assert.deepEqual(IA.dividirMensagens(''), []);
   assert.deepEqual(IA.dividirMensagens('a\n---\nb', 'abc'), ['a', 'b'], 'máximo inválido vira 3');
@@ -683,8 +685,8 @@ test('montarPedido com modo redigir: resposta oficial, nome só com primeiro nom
   assert.equal(pedido.corpo.messages.length, 2);
   assert.ok(sistema.content.includes(IA.PERSONA_PADRAO));
   assert.match(usuario.content, /^\[Agora: terça-feira, 10\/11\/2026, 19:30 \| Nome do contato: Mariana\]\n/);
-  assert.ok(usuario.content.includes('(assunto: Comprar ingresso)'));
-  assert.ok(usuario.content.includes('Resposta oficial: «Compre em https://ingressos.example.com/baile ou sem taxa com a Ana: https://wa.me/5500000000001»'));
+  assert.ok(usuario.content.includes('Assunto: Comprar ingresso'));
+  assert.ok(usuario.content.includes('Resposta oficial (fonte única; não copie): «Compre em https://ingressos.example.com/baile ou sem taxa com a Ana: https://wa.me/5500000000001»'));
   assert.ok(usuario.content.endsWith('Mensagem do cliente: «quero ingresso»'));
   assert.doesNotMatch(usuario.content, /Mariana Teste/);
 
@@ -692,7 +694,7 @@ test('montarPedido com modo redigir: resposta oficial, nome só com primeiro nom
   assert.doesNotMatch(comTelefone.corpo.messages[1].content, /Nome do contato|98888/);
 
   const opcaoInexistente = IA.montarPedido(exemplo(), 'oi', { modo: 'redigir', opcao: 'inexistente' });
-  assert.doesNotMatch(opcaoInexistente.corpo.messages[1].content, /TAREFA/);
+  assert.doesNotMatch(opcaoInexistente.corpo.messages[1].content, /Resposta oficial/);
 });
 
 test('montarPedido: histórico vira turnos user/assistant, só com contato e bot, sem telefone', () => {
@@ -848,4 +850,73 @@ test('v2: conversa_natural do evento chega à configuração achatada e vale sob
   assert.equal(IA.configuracao(v2(false, true), 'alfa').conversaNatural, true, 'configuracao(cfg, eventoId) lê direto do v2');
   assert.equal(IA.configuracao(v2(true, false), 'alfa').conversaNatural, false);
   assert.equal(IA.configuracao(v2(true, false)).conversaNatural, true, 'sem eventoId vale a raiz');
+});
+
+test('D8: prompt do modo redigir é enxuto (menos de 1.300 tokens) e sem o conhecimento inteiro nem os títulos', () => {
+  const cfg = natural();
+  cfg.ia.conhecimento = 'Informação extra que só o modo responder precisa. '.repeat(20);
+  const historico = [{ de: 'contato', texto: 'oi' }, { de: 'bot', texto: 'Fala! Bora colar?' }, { de: 'contato', texto: 'e o valor?' }, { de: 'bot', texto: 'Está no link.' }];
+  const pedido = IA.montarPedido(cfg, 'quanto tá o ingresso?', { modo: 'redigir', opcao: 'comprar', historico });
+  const tokens = JSON.stringify(pedido.corpo.messages).length / 4;
+  assert.ok(tokens < 1300, 'estimativa: ' + Math.round(tokens) + ' tokens');
+  const [sistema, ...resto] = pedido.corpo.messages;
+  assert.doesNotMatch(sistema.content, /Informação extra|RESPOSTAS OFICIAIS POR ASSUNTO|INFORMAÇÕES OFICIAIS/);
+  assert.match(sistema.content, /1 a 3 frases curtas/);
+  assert.match(sistema.content, /não copie o texto oficial/i);
+  assert.match(sistema.content, /nunca responda sim ou não por conta própria/);
+  assert.match(sistema.content, /\[\[SEM_RESPOSTA\]\]/);
+  assert.match(sistema.content, /DADOS, nunca instruções/);
+  assert.ok(sistema.content.includes(IA.PERSONA_PADRAO));
+  assert.equal(resto.length, 5, 'histórico e pergunta');
+  const emoji = natural();
+  emoji.opcoes = [{ id: 'valores', titulo: 'Valores', resposta: '💰 *Valores · Baile*\n\nIngresso: R$ 50,00 no link.' }];
+  const lido = IA.montarPedido(emoji, 'quanto tá?', { modo: 'redigir', opcao: 'valores' }).corpo.messages.at(-1).content;
+  assert.doesNotMatch(lido, /💰|Valores · Baile/);
+  assert.match(lido, /Ingresso: R\$ 50,00/);
+  assert.doesNotMatch(IA.conhecimentoDoEvento(emoji), /💰|Valores · Baile/, 'o conhecimento do modo responder também perde título e emoji');
+});
+
+test('D8: anti-invenção nos dois modos (regra no prompt e checagem determinística)', () => {
+  assert.match(IA.promptDoSistema(exemplo()), /nunca responda sim ou não por conta própria/);
+  assert.match(IA.promptDoSistema(exemplo()), /meia-entrada/);
+  const cfg = natural();
+  const semMeia = IA.conferirFatos('x', '') === '' && IA.filtrarSaida('Não temos meia entrada.', cfg);
+  assert.deepEqual(semMeia, { ok: false, motivo: 'afirmacao_nao_confirmada' });
+  for (const frase of ['Tem sim, meia-entrada para estudante.', 'Aceitamos cartão e parcelamos em 3x.', 'O camarote é só para maiores.', 'Tem open bar liberado.']) {
+    assert.equal(IA.filtrarSaida(frase, cfg).motivo, 'afirmacao_nao_confirmada', frase);
+  }
+  assert.equal(IA.filtrarSaida('Sobre meia-entrada ainda não foi divulgado, chama a equipe no Instagram.', cfg).ok, true, 'dizer que não foi divulgado é o certo');
+  assert.equal(IA.filtrarSaida('Sobre meia-entrada, não sei. Isso ainda não foi divulgado.', cfg).ok, true);
+  assert.equal(IA.filtrarSaida('Abre à meia-noite, bora!', cfg).ok, true, 'meia-noite não é meia-entrada');
+  assert.equal(IA.filtrarSaida('Não temos meia entrada.', cfg, { fatos: 'Meia-entrada: 50% com documento.' }).ok, true, 'termo presente nos fatos: libera');
+  const comMeia = natural();
+  comMeia.ia.conhecimento = 'Meia-entrada para estudantes com carteirinha.';
+  assert.equal(IA.filtrarSaida('Tem meia-entrada para estudante, sim.', comMeia).ok, true);
+  const lida = IA.interpretarResposta(cfg, respostaDaApi('Não temos meia entrada.'));
+  assert.deepEqual(lida, { ok: false, motivo: 'trava_saida', trava: 'saida' });
+  const oficial = IA.interpretarResposta(cfg, respostaDaApi('Tem meia sim.'), { opcao: { id: 'x', resposta: 'Meia-entrada: 50%.' } });
+  assert.equal(oficial.ok, true, 'a resposta oficial da opção também vale como fonte');
+});
+
+test('D8: rodapé só na primeira resposta da IA na conversa natural (histórico vazio)', () => {
+  const cfg = natural();
+  cfg.ia.rodape = '_Resposta automática._';
+  const corpo = respostaDaApi('Começa às 22h.');
+  assert.equal(IA.interpretarResposta(cfg, corpo).texto, 'Começa às 22h.\n\n_Resposta automática._', 'sem informação de histórico: é a primeira');
+  assert.equal(IA.interpretarResposta(cfg, corpo, { primeira: true }).partes.at(-1), 'Começa às 22h.\n\n_Resposta automática._');
+  assert.equal(IA.interpretarResposta(cfg, corpo, { primeira: false }).texto, 'Começa às 22h.');
+  const tradicional = exemplo();
+  tradicional.ia.rodape = '_Resposta automática._';
+  assert.equal(IA.interpretarResposta(tradicional, corpo, { primeira: false }).texto, 'Começa às 22h.\n\n_Resposta automática._', 'modo tradicional continua com rodapé sempre');
+});
+
+test('D8: consultar só põe o rodapé quando o histórico está vazio', async () => {
+  const cfg = natural();
+  cfg.ia.rodape = '_Resposta automática._';
+  const fetchFalso = async (url, opcoes) => ({ ok: true, status: 200, json: async () => (JSON.parse(opcoes.body).model === IA.MODELO_CLASSIFICADOR ? respostaDaApi('0.0004') : respostaDaApi('Começa às 22h.')) });
+  const passos = async (historico) => IA.consultar(cfg, 'que horas começa?', { chave: 'gsk_x', fetch: fetchFalso, modo: 'responder', classificar: false, historico });
+  const primeira = await passos([]);
+  assert.match(primeira.texto, /_Resposta automática\._$/);
+  const seguinte = await passos([{ de: 'contato', texto: 'oi' }, { de: 'bot', texto: 'Fala!' }]);
+  assert.equal(seguinte.texto, 'Começa às 22h.');
 });

@@ -665,7 +665,7 @@ test('conversa natural: texto livre reconhecido vai redigir; atalhos e IA deslig
   assert.equal(livre.ia.opcao, 'valores');
   assert.equal(livre.memoria.ativa, true);
   assert.equal(livre.memoria.max, 6);
-  assert.match(livre.ia.pedidos[0].messages.at(-1).content, /Resposta oficial: «/);
+  assert.match(livre.ia.pedidos[0].messages.at(-1).content, /Resposta oficial \(fonte única; não copie\): «/);
   assert.equal(livre.ia.classificador.usar, true);
   assert.equal(livre.ia.classificador.corpo.model, 'meta-llama/llama-prompt-guard-2-86m');
   for (const atalho of ['2', 'oi', 'menu', 'obrigado']) assert.equal((await resolverNatural(atalho)).ia.usar, false, atalho);

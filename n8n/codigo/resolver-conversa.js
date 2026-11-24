@@ -80,6 +80,8 @@ if (plano.trava) {
   ia = {
     usar: true,
     modo: plano.modo,
+    // Sem histórico = primeira resposta da conversa (o rodapé só aparece nela, na conversa natural).
+    primeira: !(natural && conf.memoriaMensagens > 0 && Array.isArray(historico) && historico.length > 0),
     // Só o id do assunto segue adiante; o texto oficial é relido da configuração.
     opcao: plano.modo === 'redigir' ? resolvido.intencao : undefined,
     classificador: guarda,
