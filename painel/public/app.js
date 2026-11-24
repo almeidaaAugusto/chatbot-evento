@@ -9,6 +9,7 @@ let salvando = false;
 let simulando = false;
 let sequenciaCampo = 0;
 let usosIA = 0;
+let historicoConversa = []; // turnos {de, texto} do simulador: viram a memória da conversa natural
 let papelEfetivo = 'admin'; // ajustado por /api/sessao; o servidor também confere
 let selecionado = 'produtora'; // v2: índice do evento em edição ou 'produtora'
 const idsNovos = new Set(); // eventos criados nesta sessão (o id ainda pode mudar)
@@ -40,6 +41,7 @@ function gerarId(nome, existentes) {
 const nomesEvento = { nome: 'Nome do evento', data: 'Data', horario: 'Horário de início', termino: 'Término previsto', cidade: 'Cidade', local: 'Local / endereço', ingresso: 'Ingresso e lote atual', lineup: 'Line-up', link_ingressos: 'Link de valores dos ingressos', link_compra: 'Link para comprar', instagram: 'Instagram do atendimento', grupo: 'Grupo oficial (WhatsApp)', linktree: 'Página com todos os links', email: 'E-mail' };
 const camposLargos = ['nome', 'data', 'local', 'ingresso', 'lineup', 'link_ingressos', 'link_compra', 'instagram', 'grupo', 'linktree'];
 const resultadosIA = {"sem_chave":"a chave da IA não está configurada (rode scripts\\configurar-ia.ps1)","limite_por_contato":"este contato já usou a IA o máximo de vezes permitido","limite_do_simulador":"o simulador já usou a IA 30 vezes na última hora","sem_resposta":"a IA não tinha essa informação","tempo_esgotado":"a IA demorou demais","erro_401":"a chave da IA foi recusada","erro_429":"a cota da API de IA esgotou por enquanto","erro_de_rede":"não foi possível conectar à API de IA","link_nao_confirmado":"a IA citou um link que não está cadastrado","contato_nao_confirmado":"a IA citou um contato que não está cadastrado","preco_nao_confirmado":"a IA citou um valor que não está cadastrado"};
+const ajudaForaDoAssunto = 'Enviada, sem usar a IA, quando a mensagem é barrada pelas travas (pedido para ignorar regras, revelar instruções, etc.). Vazio usa: Por aqui eu só consigo ajudar com o evento 😉 Digite *menu* para ver as opções.';
 const titulosPadrao = { qrcode: 'Onde encontro meu QR Code?', valores: 'Valores dos ingressos', local: 'Local e horário do evento', comprar: 'Comprar ingressos', atendente: 'Falar com um atendente' };
 const fallbackPadrao = ['Não consegui identificar sua dúvida. Digite menu para ver as opções ou escreva o assunto que procura.', 'Ainda não entendi. Tente reformular com mais detalhes ou escolha uma opção do menu.', 'Para receber ajuda da nossa equipe, fale pelo Instagram: {{instagram}}. Quando quiser, digite menu para retomar.'];
 
@@ -185,7 +187,8 @@ function renderizar() {
     campos.append(campo({ titulo: 'Mensagem de boas-vindas e menu', valor: mensagens.menu || '', linhas: true, classe: 'menu', obrigatorio: true, mudar: valor => { mensagens.menu = valor; } }));
     const outras = [['nao_entendi', 'Resposta geral para dúvida não reconhecida']];
     if (!v2) outras.push(['reativado', 'Mensagem ao reativar o atendimento']);
-    for (const [chave, titulo] of outras) $('#campos-mensagens').append(campo({ titulo, valor: mensagens[chave] || '', linhas: true, mudar: valor => { mensagens[chave] = valor; } }));
+    if (!v2) outras.push(['fora_do_assunto', 'Mensagem para assunto fora do evento ou tentativa de manipular a IA', ajudaForaDoAssunto]);
+    for (const [chave, titulo, ajuda] of outras) $('#campos-mensagens').append(campo({ titulo, valor: mensagens[chave] || '', linhas: true, ajuda, mudar: valor => { if (chave === 'fora_do_assunto' && !valor.trim()) delete mensagens[chave]; else mensagens[chave] = valor; } }));
     renderizarOpcoes();
   }
   const fallback = $('#campos-fallback'); fallback.replaceChildren();
@@ -340,28 +343,31 @@ function renderizarProdutora() {
     ['escolher_evento', 'Menu de eventos (quando há mais de um ativo)', textoEscolherEvento, 'Use {{eventos}} onde a lista numerada deve aparecer.'],
     ['sem_eventos', 'Quando não há evento ativo', textoSemEventos, 'Resposta enquanto nenhum evento estiver com atendimento aberto.'],
     ['reativado', 'Mensagem ao reativar o atendimento', '', ''],
-    ['agradecimento', 'Resposta a um agradecimento', '', '']])
-    m.append(campo({ titulo, valor: config.mensagens[chave] ?? padrao, linhas: true, ajuda, mudar: valor => { config.mensagens[chave] = valor; } }));
+    ['agradecimento', 'Resposta a um agradecimento', '', ''],
+    ['fora_do_assunto', 'Mensagem para assunto fora do evento ou tentativa de manipular a IA', '', ajudaForaDoAssunto]])
+    m.append(campo({ titulo, valor: config.mensagens[chave] ?? padrao, linhas: true, ajuda, mudar: valor => { if (chave === 'fora_do_assunto' && !valor.trim()) delete config.mensagens[chave]; else config.mensagens[chave] = valor; } }));
 }
 
-function campoIA({ titulo, tipo = 'texto', chave, ajuda, opcoes, minimo, maximo, passo, linhas, largo }) {
-  const ia = iaEditada();
-  if (tipo === 'texto') return campo({ titulo, valor: ia[chave] || '', linhas, classe: largo ? 'campo-largo' : '', ajuda, mudar: valor => { if (valor.trim()) ia[chave] = valor; else delete ia[chave]; } });
-  if (tipo === 'lista_texto') return campo({ titulo, valor: Array.isArray(ia[chave]) ? ia[chave].join(', ') : '', ajuda, mudar: valor => { ia[chave] = [...new Set(valor.split(',').map(item => item.trim()).filter(Boolean))]; } });
+function campoIA({ titulo, tipo = 'texto', chave, ajuda, opcoes, minimo, maximo, passo, linhas, largo, sub, padrao }) {
+  // "sub" edita um objeto dentro de ia (audio, travas), criado só na primeira alteração.
+  const ler = () => (sub ? (iaEditada()[sub] || {}) : iaEditada());
+  const alvo = () => (sub ? (iaEditada()[sub] ||= {}) : iaEditada());
+  if (tipo === 'texto') return campo({ titulo, valor: ler()[chave] || '', linhas, maximo, classe: largo ? 'campo-largo' : '', ajuda, mudar: valor => { if (valor.trim()) alvo()[chave] = valor; else delete alvo()[chave]; } });
+  if (tipo === 'lista_texto') return campo({ titulo, valor: Array.isArray(ler()[chave]) ? ler()[chave].join(', ') : '', ajuda, mudar: valor => { alvo()[chave] = [...new Set(valor.split(',').map(item => item.trim()).filter(Boolean))]; } });
   const label = document.createElement('label');
   label.className = 'campo' + (tipo === 'marcar' ? ' campo-marcar campo-largo' : '');
   const input = document.createElement(tipo === 'lista' ? 'select' : 'input');
   input.id = 'campo-' + ++sequenciaCampo;
-  if (tipo === 'marcar') { input.type = 'checkbox'; input.checked = ia[chave] === true; }
+  if (tipo === 'marcar') { input.type = 'checkbox'; input.checked = (ler()[chave] ?? padrao) === true; }
   else if (tipo === 'lista') {
     for (const [valor, nome] of opcoes) { const item = document.createElement('option'); item.value = valor; item.textContent = nome; input.append(item); }
-    input.value = ia[chave] || opcoes[0][0];
-  } else { input.type = 'number'; input.min = minimo; input.max = maximo; input.step = passo || 1; input.value = ia[chave] ?? ''; input.inputMode = 'decimal'; }
+    input.value = ler()[chave] || opcoes[0][0];
+  } else { input.type = 'number'; input.min = minimo; input.max = maximo; input.step = passo || 1; input.value = ler()[chave] ?? ''; input.inputMode = 'decimal'; }
   input.addEventListener(tipo === 'marcar' || tipo === 'lista' ? 'change' : 'input', () => {
-    if (tipo === 'marcar') ia[chave] = input.checked;
-    else if (tipo === 'lista') ia[chave] = input.value;
-    else if (input.value === '') delete ia[chave];
-    else ia[chave] = Number(input.value);
+    if (tipo === 'marcar') alvo()[chave] = input.checked;
+    else if (tipo === 'lista') alvo()[chave] = input.value;
+    else if (input.value === '') delete alvo()[chave];
+    else alvo()[chave] = Number(input.value);
     mudou();
   });
   const span = document.createElement('span'); span.textContent = titulo;
@@ -370,9 +376,29 @@ function campoIA({ titulo, tipo = 'texto', chave, ajuda, opcoes, minimo, maximo,
   return label;
 }
 
+// Chave por evento: herdar (sem o campo), ligada ou desligada.
+function campoConversaNaturalDoEvento(ev) {
+  const label = document.createElement('label'); label.className = 'campo campo-largo';
+  const select = document.createElement('select'); select.id = 'campo-' + ++sequenciaCampo;
+  const herdado = config.ia?.conversa_natural === true ? 'ligada' : 'desligada';
+  for (const [valor, nome] of [['herdar', 'Herdar da produtora (' + herdado + ')'], ['ligada', 'Ligada neste evento'], ['desligada', 'Desligada neste evento']]) { const o = document.createElement('option'); o.value = valor; o.textContent = nome; select.append(o); }
+  select.value = typeof ev.ia?.conversa_natural === 'boolean' ? (ev.ia.conversa_natural ? 'ligada' : 'desligada') : 'herdar';
+  select.addEventListener('change', () => {
+    ev.ia ||= {};
+    if (select.value === 'herdar') delete ev.ia.conversa_natural; else ev.ia.conversa_natural = select.value === 'ligada';
+    mudou();
+  });
+  const span = document.createElement('span'); span.textContent = 'Conversa natural neste evento';
+  const small = document.createElement('small'); small.id = select.id + '-ajuda'; select.setAttribute('aria-describedby', small.id);
+  small.textContent = 'Sobrescreve a chave geral só para este evento. Atalhos (número do menu) continuam instantâneos; com ela ligada, a IA reescreve a resposta do texto livre reconhecido.';
+  label.append(span, select, small);
+  return label;
+}
+
 function renderizarIA() {
   const area = $('#campos-ia'); area.replaceChildren();
   if (eventoAtual()) {
+    area.append(campoConversaNaturalDoEvento(eventoAtual()));
     const c = campoIA({ titulo: 'Informações extras sobre este evento', chave: 'conhecimento', linhas: true, largo: true, ajuda: 'Tudo o que a IA pode usar sobre este evento além dos dados e das respostas. Liste também o que ainda não foi divulgado, para ela não inventar.' });
     c.querySelector('textarea').classList.add('conhecimento');
     area.append(c);
@@ -389,9 +415,23 @@ function renderizarIA() {
     campoIA({ titulo: 'Usos da IA por dia (todos os contatos)', tipo: 'numero', chave: 'max_usos_por_dia', minimo: 0, maximo: 1000000, ajuda: '0 = sem limite. Se ausente, o padrão é 80.' }),
     campoIA({ titulo: 'Tamanho máximo da resposta (caracteres)', tipo: 'numero', chave: 'tamanho_maximo_resposta', minimo: 120, maximo: 3000, ajuda: 'Padrão 600.' }),
   );
+  const natural = document.createElement('div'); natural.className = 'grade-campos';
+  natural.append(
+    campoIA({ titulo: 'Conversa natural (a IA reescreve as respostas)', tipo: 'marcar', chave: 'conversa_natural', ajuda: 'As regras decidem o quê e a IA decide o como. Atalhos (número do menu, saudação, atendente) continuam instantâneos e sem IA. Texto livre que as regras reconhecem é reescrito pela IA com base na resposta oficial. Se a IA falhar, vai a resposta pronta. Texto não reconhecido segue para a IA como antes.' }),
+    campoIA({ titulo: 'Mensagens por resposta', tipo: 'numero', chave: 'max_mensagens', minimo: 1, maximo: 4, ajuda: 'De 1 a 4. A IA pode dividir a resposta em mensagens curtas enviadas em sequência. Padrão 3.' }),
+    campoIA({ titulo: 'Memória da conversa (mensagens)', tipo: 'numero', chave: 'memoria_mensagens', minimo: 0, maximo: 20, ajuda: 'Quantas mensagens recentes (do contato e do robô) a IA lembra, por 24 horas. 0 desliga a memória. Padrão 6.' }),
+    campoIA({ sub: 'audio', padrao: true, titulo: 'Transcrever áudios e mensagens de voz', tipo: 'marcar', chave: 'ativo', ajuda: 'Com a IA ativa, o áudio vira texto e segue o fluxo normal. Se a transcrição falhar, vale a resposta padrão para mídia. Padrão ligado.' }),
+    campoIA({ sub: 'audio', titulo: 'Duração máxima do áudio (segundos)', tipo: 'numero', chave: 'max_segundos', minimo: 10, maximo: 600, ajuda: 'De 10 a 600. Áudios mais longos recebem a resposta padrão para mídia. Padrão 120.' }),
+  );
+  const persona = campoIA({ titulo: 'Persona (jeito de falar da IA)', chave: 'persona', linhas: true, largo: true, maximo: 1500, ajuda: 'Até 1500 caracteres. Só muda o tom: não altera as regras nem libera assuntos fora do evento. Vazio usa a persona padrão (promoter jovem e simpático).' });
+  const travas = document.createElement('div'); travas.className = 'grade-campos';
+  travas.append(
+    campoIA({ sub: 'travas', titulo: 'Limite do classificador de ataques (0,1 a 0,99)', tipo: 'numero', chave: 'limite_ataque', minimo: 0.1, maximo: 0.99, passo: 0.01, ajuda: 'Um classificador dá uma nota de 0 a 1 para cada mensagem: perto de 1 parece tentativa de manipular a IA. A partir deste valor a mensagem é barrada e recebe a resposta pronta. Menor = mais rígido (pode barrar perguntas normais). Padrão 0,5.' }),
+    campoIA({ sub: 'travas', titulo: 'Termos proibidos na resposta da IA', tipo: 'lista_texto', chave: 'termos_proibidos', ajuda: 'Termos separados por vírgula, no máximo 200. Se a resposta da IA contiver algum, ela é descartada e vai a resposta pronta. Somam-se à lista padrão do sistema.' }),
+  );
   const conhecimento = campoIA({ titulo: multi() ? 'Informações extras da produtora (valem para todos os eventos)' : 'Informações extras para a IA', chave: 'conhecimento', linhas: true, largo: true, ajuda: 'Tudo o que a IA pode usar além dos dados do evento e das respostas. Liste também o que ainda não foi divulgado, para ela não inventar.' });
   conhecimento.querySelector('textarea').classList.add('conhecimento');
-  area.append(grade, conhecimento,
+  area.append(grade, natural, persona, travas, conhecimento,
     campoIA({ titulo: 'Texto no fim das respostas da IA', chave: 'rodape', linhas: true, largo: true, ajuda: 'Opcional. Ex.: _Resposta automática. Digite *menu* para ver as opções._' }));
 }
 
@@ -421,6 +461,7 @@ async function carregar() {
     const primeiroAtivo = multi() ? config.eventos.findIndex(ev => ev.status === 'ativo') : -1;
     selecionado = primeiroAtivo >= 0 ? primeiroAtivo : 'produtora';
     $('#simular-como').value = '';
+    $('#simular-natural').checked = config.ia?.conversa_natural === true;
     renderizar(); avisos(dados.avisos); feedback(''); reiniciarConversa(); statusIA(); carregarVersoes();
   } catch (erro) { feedback(erro.message, true, erro.detalhes); atualizarSituacao(); }
   finally { $('#recarregar').disabled = false; }
@@ -429,11 +470,22 @@ async function carregar() {
 function reiniciarConversa() {
   estadoConversa = {};
   usosIA = 0;
+  historicoConversa = [];
   const inicio = document.createElement('div'); inicio.className = 'inicio-conversa';
   const simbolo = document.createElement('span'); simbolo.textContent = '↗'; simbolo.setAttribute('aria-hidden', 'true');
   const titulo = document.createElement('p'); titulo.textContent = 'Que tal começar com um “oi”?';
   const ajuda = document.createElement('small'); ajuda.textContent = 'Digite como se fosse um participante.';
   inicio.append(simbolo, titulo, ajuda); $('#historico').replaceChildren(inicio); $('#erro-simulador').hidden = true;
+}
+
+const nomesTrava = { entrada: 'filtro de entrada', classificador: 'classificador de ataques', saida: 'filtro de saída', contato: 'contato insistente' };
+const nomesOrigem = { ia_redigida: 'IA reescreveu a resposta pronta', ia: 'IA respondeu (não reconhecido pelas regras)' };
+
+// Legenda pequena abaixo das respostas: quem respondeu e em quantas mensagens.
+function balaoOrigem(resultado, quantas) {
+  const nome = nomesOrigem[resultado.origem];
+  if (!nome) return;
+  balao(nome + (quantas > 1 ? ' · ' + quantas + ' mensagens' : ''), 'silencio');
 }
 
 function balao(texto, tipo) {
@@ -450,13 +502,24 @@ async function simular(midia = false) {
   for (const id of ['enviar-simulacao', 'simular-midia', 'reiniciar-conversa']) $('#' + id).disabled = true;
   $('#erro-simulador').hidden = true;
   try {
-    const corpo = { config: structuredClone(config), texto: midia ? '' : texto, estado: estadoConversa, midia, usosIA };
+    const corpo = { config: structuredClone(config), texto: midia ? '' : texto, estado: estadoConversa, midia, usosIA, conversaNatural: $('#simular-natural').checked, historico: historicoConversa };
     if (multi()) { const como = $('#simular-como').value; if (como) corpo.eventoId = como; else { corpo.incluirRascunhos = $('#incluir-rascunhos').checked; if (numerosCadastrados().length && $('#simular-numero').value) corpo.sessao = $('#simular-numero').value; } }
     const resultado = await api('/api/simular', 'POST', corpo);
     balao(midia ? 'Áudio ou imagem sem legenda' : texto, 'usuario');
-    if (resultado.ia?.resultado && resultado.ia.resultado !== 'respondeu') balao('IA não usada: ' + (resultadosIA[resultado.ia.resultado] || resultado.ia.resultado) + '.', 'silencio');
-    if (resultado.resposta) balao(resultado.resposta, resultado.intencao === 'ia' ? 'ia' : '');
+    if (resultado.ia?.resultado && resultado.ia.resultado !== 'respondeu') {
+      const trava = resultado.ia.trava ? ' Trava: ' + (nomesTrava[resultado.ia.trava] || resultado.ia.trava) + '.' : '';
+      const reserva = resultado.ia.reservaPronta ? ' Foi enviada a resposta pronta.' : '';
+      balao('IA não usada: ' + (resultadosIA[resultado.ia.resultado] || resultado.ia.resultado) + '.' + trava + reserva, 'silencio');
+    }
+    const partes = Array.isArray(resultado.partes) && resultado.partes.length ? resultado.partes : (resultado.resposta ? [resultado.resposta] : []);
+    for (const parte of partes) balao(parte, ['ia', 'ia_redigida'].includes(resultado.origem) ? 'ia' : '');
+    if (resultado.resposta) balaoOrigem(resultado, partes.length);
     else balao('O atendimento aguarda uma opção reconhecida para continuar.', 'silencio');
+    if (resultado.memorizar !== false) {
+      historicoConversa.push({ de: 'contato', texto: midia ? '' : texto });
+      if (resultado.resposta) historicoConversa.push({ de: 'bot', texto: resultado.resposta });
+      historicoConversa = historicoConversa.filter(item => item.texto).slice(-40);
+    }
     estadoConversa = resultado.estado || {};
     usosIA = Number.isInteger(resultado.usosIA) ? resultado.usosIA : usosIA;
     input.value = '';

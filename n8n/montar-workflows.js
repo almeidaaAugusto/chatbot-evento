@@ -22,14 +22,21 @@ const BASE = "$('Interpretar mensagem').first().json";
 const RESOLVIDO = "$('Resposta final').first().json";
 // Pedido preparado para a IA (endereço, corpo, limites e chaves dos contadores).
 const PLANO_IA = "$('Resolver conversa').first().json.ia";
+// Parte da resposta que está sendo enviada no laço de envio (uma mensagem por volta).
+const PARTE = "$('Repetir para cada parte').item.json";
+// Memória da conversa e contador de bloqueios da IA, por contato.
+const CHAVE_HISTORICO = "={{ 'hist:' + " + BASE + ".sessao + ':' + " + BASE + ".chatId }}";
+const CHAVE_ATAQUE = "={{ 'ataque:' + " + BASE + ".sessao + ':' + " + BASE + ".chatId }}";
 const CHAVE_TRAVA = "={{ " + BASE + ".chaveConversa + ':trava' }}";
 // Deslocamento, na tela do n8n, dos nós que vêm depois do ramo da IA.
 const DX = 3600;
 
 // Bibliotecas de lib/ embutidas nos nós de código que as utilizam (o n8n não lê arquivos).
 const BIBLIOTECAS = {
+  'interpretar.js': [['IA', 'ia.js']],
   'resolver-conversa.js': [['Chatbot', 'conversa.js'], ['Eventos', 'eventos.js'], ['IA', 'ia.js']],
   'aplicar-resposta-ia.js': [['IA', 'ia.js']],
+  'aplicar-classificador.js': [['IA', 'ia.js']],
 };
 
 // ---------- utilitários ----------
@@ -120,6 +127,25 @@ const noIaGerar = (nome, posicao, n) => no(
   { credentials: CRED_IA, onError: 'continueRegularOutput' },
 );
 
+// Classificador de ataque (Prompt Guard), antes da IA principal: tempo curto e a mesma credencial.
+const noIaClassificar = (nome, posicao) => no(
+  nome,
+  'n8n-nodes-base.httpRequest',
+  4.2,
+  posicao,
+  {
+    method: 'POST',
+    url: '={{ ' + PLANO_IA + '.classificador.url }}',
+    authentication: 'genericCredentialType',
+    genericAuthType: 'httpHeaderAuth',
+    sendBody: true,
+    specifyBody: 'json',
+    jsonBody: '={{ JSON.stringify(' + PLANO_IA + '.classificador.corpo) }}',
+    options: { timeout: '={{ ' + PLANO_IA + '.classificador.tempoLimiteMs }}' },
+  },
+  { credentials: CRED_IA, onError: 'continueRegularOutput' },
+);
+
 const noRedis = (nome, posicao, parametros, extras = {}) =>
   no(nome, 'n8n-nodes-base.redis', 1, posicao, parametros, { credentials: CRED_REDIS, ...extras });
 
@@ -127,7 +153,7 @@ const noRedis = (nome, posicao, parametros, extras = {}) =>
 const OPCIONAL = { onError: 'continueRegularOutput' };
 
 const conversa = '{ session: ' + BASE + '.sessao, chatId: ' + BASE + '.chatId }';
-const mensagem = '{ session: ' + BASE + '.sessao, chatId: ' + BASE + '.chatId, text: ' + RESOLVIDO + '.resposta }';
+const mensagem = '{ session: ' + BASE + '.sessao, chatId: ' + BASE + '.chatId, text: ' + PARTE + '.texto }';
 const avisoReativacao = '{ session: ' + BASE + '.sessao, chatId: ' + BASE + '.chatId, text: ' + BASE + '.resposta }';
 
 function ligar(conexoes, origem, destino, saida = 0) {
@@ -305,6 +331,50 @@ function workflowPrincipal() {
       operation: 'get', propertyName: 'conversa',
       key: '={{ ' + BASE + '.chaveConversa }}', keyType: 'string', options: {},
     }),
+    // Memória curta da conversa e bloqueios recentes do contato (lidos antes de decidir quem responde).
+    noRedis('Redis: ler histórico', [3220, -180], {
+      operation: 'get', propertyName: 'historico', key: CHAVE_HISTORICO, keyType: 'string', options: {},
+    }, OPCIONAL),
+    noRedis('Redis: ler ataques', [3380, -180], {
+      operation: 'get', propertyName: 'ataques', key: CHAVE_ATAQUE, keyType: 'string', options: {},
+    }, OPCIONAL),
+    // Áudio (mensagem de voz): baixa só este áudio do WAHA, transcreve na Groq e segue com o texto.
+    // Qualquer falha continua o fluxo: "Aplicar transcrição" decide o resultado e, sem texto, vale a resposta de mídia.
+    noSe('Áudio a transcrever?', [3380, -1100], '={{ Boolean(' + BASE + '.audio && ' + BASE + '.audio.transcrever === true) }}'),
+    no('WAHA: obter áudio', 'n8n-nodes-base.httpRequest', 4.2, [3600, -1100], {
+      method: 'GET',
+      url: '={{ ' + JSON.stringify(WAHA) + " + " + BASE + '.audio.rota }}',
+      authentication: 'genericCredentialType',
+      genericAuthType: 'httpHeaderAuth',
+      options: { timeout: 15000 },
+    }, { credentials: CRED_WAHA, onError: 'continueRegularOutput' }),
+    noCodigo('Localizar arquivo do áudio', [3820, -1100], 'localizar-audio.js'),
+    no('WAHA: baixar áudio', 'n8n-nodes-base.httpRequest', 4.2, [4040, -1100], {
+      method: 'GET',
+      url: '={{ ' + JSON.stringify(WAHA) + " + ($json.rotaArquivo || '/api/files/inexistente') }}",
+      authentication: 'genericCredentialType',
+      genericAuthType: 'httpHeaderAuth',
+      options: { timeout: 20000, response: { response: { responseFormat: 'file', outputPropertyName: 'data' } } },
+    }, { credentials: CRED_WAHA, onError: 'continueRegularOutput' }),
+    noCodigo('Nomear áudio', [4260, -1100], 'nomear-audio.js'),
+    no('IA: transcrever áudio', 'n8n-nodes-base.httpRequest', 4.2, [4480, -1100], {
+      method: 'POST',
+      url: '={{ ' + BASE + '.audio.urlTranscricao }}',
+      authentication: 'genericCredentialType',
+      genericAuthType: 'httpHeaderAuth',
+      sendBody: true,
+      contentType: 'multipart-form-data',
+      bodyParameters: {
+        parameters: [
+          { parameterType: 'formBinaryData', name: 'file', inputDataFieldName: 'data' },
+          { name: 'model', value: '={{ ' + BASE + '.audio.modelo }}' },
+          { name: 'language', value: 'pt' },
+          { name: 'response_format', value: 'json' },
+        ],
+      },
+      options: { timeout: 20000 },
+    }, { credentials: CRED_IA, onError: 'continueRegularOutput' }),
+    noCodigo('Aplicar transcrição', [4700, -1100], 'aplicar-transcricao.js'),
     noCodigo('Resolver conversa', [3380, -300], 'resolver-conversa.js'),
     noRedis('Redis: contador por hora', [3380, -100], {
       operation: 'incr',
@@ -337,6 +407,11 @@ function workflowPrincipal() {
     // Cada tentativa tem tempo limite curto. A cadeia é desenrolada (sem laço): principal e até
     // duas reservas. Se tudo falhar, o atendimento segue sem a IA. O uso é contado uma vez
     // por mensagem (nós acima), não por tentativa.
+    // Classificador de ataque (só texto que vai para a IA principal). Falha = fecha com segurança.
+    noSe('Usar classificador?', [5100, -300], '={{ Boolean(' + PLANO_IA + '.classificador && ' + PLANO_IA + '.classificador.usar) }}'),
+    noIaClassificar('IA: classificar ataque', [5100, -120]),
+    noCodigo('Aplicar classificador', [5120, 60], 'aplicar-classificador.js'),
+    noSe('Classificador aprovou?', [5140, 220], '={{ $json.ia.aprovado }}'),
     noIaGerar('IA: gerar resposta', [5140, -300], 0),
     noCodigo('Aplicar resposta da IA', [5360, -300], 'aplicar-resposta-ia.js', 'const TENTATIVA = 0;\n'),
     noSe('IA: tentar reserva 1?', [5580, -300], '={{ $json.ia.tentarReserva }}'),
@@ -365,31 +440,48 @@ function workflowPrincipal() {
       ttl: '={{ ' + BASE + '.ttlPausa }}',
     }),
     noWaha('WAHA: marcar como lida', [4740 + DX, -200], '/api/sendSeen', conversa, OPCIONAL),
-    noWaha('WAHA: digitando', [4960 + DX, -200], '/api/startTyping', conversa, OPCIONAL),
+    // Uma ou mais mensagens: o laço repete, para cada parte, digitando, espera e envio. Falha numa parte
+    // interrompe o laço (as seguintes não saem) e segue o tratamento de falha de envio.
+    noCodigo('Dividir em partes', [4960 + DX, -200], 'dividir-partes.js'),
+    no('Repetir para cada parte', 'n8n-nodes-base.splitInBatches', 3, [5180 + DX, -200], { batchSize: 1, options: {} }),
+    noWaha('WAHA: digitando', [5400 + DX, -300], '/api/startTyping', conversa, OPCIONAL),
     no(
       'Aguardar',
       'n8n-nodes-base.wait',
       1.1,
-      [5180 + DX, -200],
-      { amount: '={{ ' + BASE + '.atrasoSegundos }}', unit: 'seconds' },
+      [5620 + DX, -300],
+      { amount: '={{ ' + PARTE + '.esperaSegundos }}', unit: 'seconds' },
       { webhookId: 'c0de0000-0000-4000-9000-000000000002' },
     ),
-    noWaha('WAHA: parar de digitar', [5400 + DX, -200], '/api/stopTyping', conversa, OPCIONAL),
-    noWaha('WAHA: enviar resposta', [5620 + DX, -200], '/api/sendText', mensagem, {
+    noWaha('WAHA: parar de digitar', [5840 + DX, -300], '/api/stopTyping', conversa, OPCIONAL),
+    noWaha('WAHA: enviar resposta', [6060 + DX, -300], '/api/sendText', mensagem, {
       retryOnFail: true,
       maxTries: 2,
       waitBetweenTries: 1500,
       onError: 'continueErrorOutput',
     }),
+    // Depois do laço (ramo "done"), uma vez só: memória, contador de bloqueios, conversa, trava e log.
+    noCodigo('Consolidar envio', [5400 + DX, 40], 'consolidar-envio.js'),
+    noSe('Guardar memória?', [5620 + DX, 40], '={{ $json.guardarMemoria }}'),
+    noRedis('Redis: guardar histórico', [5840 + DX, 40], {
+      operation: 'set', key: CHAVE_HISTORICO,
+      value: "={{ $('Consolidar envio').first().json.valorHistorico }}", keyType: 'string', expire: true,
+      ttl: "={{ $('Consolidar envio').first().json.ttlHistorico }}",
+    }, OPCIONAL),
+    noSe('Houve bloqueio da IA?', [6060 + DX, 40], "={{ $('Consolidar envio').first().json.bloqueio }}"),
+    // Cada bloqueio soma; com 3 ou mais em 1 hora a IA fica desligada para o contato.
+    noRedis('Redis: contar bloqueio da IA', [6280 + DX, 40], {
+      operation: 'incr', key: CHAVE_ATAQUE, expire: true, ttl: 3600,
+    }, OPCIONAL),
     // O fallback só avança quando o envio ao WhatsApp realmente teve sucesso.
-    noRedis('Redis: guardar conversa', [5800 + DX, -100], {
+    noRedis('Redis: guardar conversa', [6500 + DX, -100], {
       operation: 'set', key: '={{ ' + BASE + '.chaveConversa }}',
       value: '={{ ' + RESOLVIDO + '.valorConversa }}', keyType: 'string', expire: true,
       ttl: '={{ ' + RESOLVIDO + '.ttlConversa }}',
     }),
-    noRedis('Redis: liberar trava (sucesso)', [6020 + DX, -100], { operation: 'delete', key: CHAVE_TRAVA }),
+    noRedis('Redis: liberar trava (sucesso)', [6720 + DX, -100], { operation: 'delete', key: CHAVE_TRAVA }),
     noRedis('Redis: liberar trava (sem resposta)', [4280 + DX, 80], { operation: 'delete', key: CHAVE_TRAVA }),
-    noRedis('Redis: liberar trava (erro no envio)', [5800 + DX, -440], { operation: 'delete', key: CHAVE_TRAVA }),
+    noRedis('Redis: liberar trava (erro no envio)', [6280 + DX, -440], { operation: 'delete', key: CHAVE_TRAVA }),
 
     // --- ramo "reativar": atendente digitou o comando de reativação na conversa ---
     noRedis('Redis: reativar contato', [1120, 300], { operation: 'delete', key: '={{ ' + BASE + '.chavePausa }}' }),
@@ -479,7 +571,17 @@ function workflowPrincipal() {
   ligar(c, 'Última mensagem após a trava?', 'Redis: ler conversa', 0);
   ligar(c, 'Última mensagem após a trava?', 'Redis: liberar trava (superada)', 1);
   ligar(c, 'Redis: liberar trava (superada)', 'Montar linha de log');
-  ligar(c, 'Redis: ler conversa', 'Resolver conversa');
+  ligar(c, 'Redis: ler conversa', 'Redis: ler histórico');
+  ligar(c, 'Redis: ler histórico', 'Redis: ler ataques');
+  ligar(c, 'Redis: ler ataques', 'Áudio a transcrever?');
+  ligar(c, 'Áudio a transcrever?', 'WAHA: obter áudio', 0);
+  ligar(c, 'Áudio a transcrever?', 'Resolver conversa', 1);
+  ligar(c, 'WAHA: obter áudio', 'Localizar arquivo do áudio');
+  ligar(c, 'Localizar arquivo do áudio', 'WAHA: baixar áudio');
+  ligar(c, 'WAHA: baixar áudio', 'Nomear áudio');
+  ligar(c, 'Nomear áudio', 'IA: transcrever áudio');
+  ligar(c, 'IA: transcrever áudio', 'Aplicar transcrição');
+  ligar(c, 'Aplicar transcrição', 'Resolver conversa');
   ligar(c, 'Resolver conversa', 'Redis: contador por hora');
   ligar(c, 'É a última da sequência?', 'Montar linha de log', 1);
   // Três caminhos até "Resposta final": sem IA, IA barrada pelo limite e IA consultada.
@@ -492,7 +594,13 @@ function workflowPrincipal() {
   ligar(c, 'IA dentro do limite?', 'Redis: contar uso da IA (contato)', 0);
   ligar(c, 'IA dentro do limite?', 'Resposta final', 1);
   ligar(c, 'Redis: contar uso da IA (contato)', 'Redis: contar uso da IA (dia)');
-  ligar(c, 'Redis: contar uso da IA (dia)', 'IA: gerar resposta');
+  ligar(c, 'Redis: contar uso da IA (dia)', 'Usar classificador?');
+  ligar(c, 'Usar classificador?', 'IA: classificar ataque', 0);
+  ligar(c, 'Usar classificador?', 'IA: gerar resposta', 1);
+  ligar(c, 'IA: classificar ataque', 'Aplicar classificador');
+  ligar(c, 'Aplicar classificador', 'Classificador aprovou?');
+  ligar(c, 'Classificador aprovou?', 'IA: gerar resposta', 0);
+  ligar(c, 'Classificador aprovou?', 'Resposta final', 1);
   ligar(c, 'IA: gerar resposta', 'Aplicar resposta da IA');
   ligar(c, 'Aplicar resposta da IA', 'IA: tentar reserva 1?');
   ligar(c, 'IA: tentar reserva 1?', 'IA: gerar resposta (reserva 1)', 0);
@@ -513,11 +621,22 @@ function workflowPrincipal() {
   ligar(c, 'Pediu atendente?', 'Redis: pausar contato', 0);
   ligar(c, 'Pediu atendente?', 'WAHA: marcar como lida', 1);
   ligar(c, 'Redis: pausar contato', 'WAHA: marcar como lida');
-  ligar(c, 'WAHA: marcar como lida', 'WAHA: digitando');
+  ligar(c, 'WAHA: marcar como lida', 'Dividir em partes');
+  ligar(c, 'Dividir em partes', 'Repetir para cada parte');
+  // Saída 0 do laço = "done" (todas as partes enviadas); saída 1 = "loop" (próxima parte).
+  ligar(c, 'Repetir para cada parte', 'Consolidar envio', 0);
+  ligar(c, 'Repetir para cada parte', 'WAHA: digitando', 1);
   ligar(c, 'WAHA: digitando', 'Aguardar');
   ligar(c, 'Aguardar', 'WAHA: parar de digitar');
   ligar(c, 'WAHA: parar de digitar', 'WAHA: enviar resposta');
-  ligar(c, 'WAHA: enviar resposta', 'Redis: guardar conversa');
+  ligar(c, 'WAHA: enviar resposta', 'Repetir para cada parte', 0);
+  ligar(c, 'Consolidar envio', 'Guardar memória?');
+  ligar(c, 'Guardar memória?', 'Redis: guardar histórico', 0);
+  ligar(c, 'Guardar memória?', 'Houve bloqueio da IA?', 1);
+  ligar(c, 'Redis: guardar histórico', 'Houve bloqueio da IA?');
+  ligar(c, 'Houve bloqueio da IA?', 'Redis: contar bloqueio da IA', 0);
+  ligar(c, 'Houve bloqueio da IA?', 'Redis: guardar conversa', 1);
+  ligar(c, 'Redis: contar bloqueio da IA', 'Redis: guardar conversa');
   ligar(c, 'Redis: guardar conversa', 'Redis: liberar trava (sucesso)');
   ligar(c, 'Redis: liberar trava (sucesso)', 'Montar linha de log');
   ligar(c, 'WAHA: enviar resposta', 'Redis: liberar trava (erro no envio)', 1);

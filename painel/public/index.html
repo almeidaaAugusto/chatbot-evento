@@ -81,7 +81,7 @@
             <legend><span class="numero-secao">05</span> Assistente de IA</legend>
             <p class="descricao">Quando o atendimento não reconhece a mensagem, a IA tenta responder usando só os dados do evento, as respostas acima e as informações extras abaixo. Se ela não souber, valem as orientações da seção 04. Cada contato pode usar a IA poucas vezes, para não estourar a cota gratuita.</p>
             <p id="status-ia" class="status-ia">Verificando a chave da IA…</p>
-            <p id="nota-ia-evento" class="descricao" hidden>Aqui você escreve só o que a IA deve saber sobre este evento. As demais configurações da IA ficam em “Produtora (geral)”.</p>
+            <p id="nota-ia-evento" class="descricao" hidden>Aqui você escolhe se a conversa natural vale neste evento e escreve só o que a IA deve saber sobre ele. As demais configurações da IA ficam em “Produtora (geral)”.</p>
             <div id="campos-ia"></div>
           </fieldset>
         </form>
@@ -108,6 +108,7 @@
           <div id="historico" class="historico" role="log" aria-live="polite" aria-label="Conversa de teste"><div class="inicio-conversa"><span aria-hidden="true">↗</span><p>Que tal começar com um “oi”?</p><small>Digite como se fosse um participante.</small></div></div>
           <form id="form-simular" class="form-simular"><label class="somente-leitor" for="texto-simulador">Mensagem de teste</label><input id="texto-simulador" name="texto" maxlength="8000" placeholder="Escreva uma mensagem…" autocomplete="off" disabled><button id="enviar-simulacao" class="botao-enviar" type="submit" aria-label="Enviar mensagem de teste" disabled>↑</button></form>
         </div>
+        <label class="campo campo-marcar simular-natural" for="simular-natural"><input id="simular-natural" type="checkbox"><span>Conversa natural (usa a IA de verdade)</span></label>
         <div class="acoes-simulador"><button id="simular-midia" class="botao-texto" type="button" disabled>Testar áudio ou imagem</button><button id="reiniciar-conversa" class="botao-texto" type="button" disabled>Reiniciar conversa</button></div>
         <p id="erro-simulador" class="erro-simulador" role="alert" hidden></p>
         <div class="dica"><span aria-hidden="true">✦</span><p><strong>Uma dica para seus exemplos</strong>Inclua perguntas como “onde vai ser?” ou “qual o endereço?”. O atendimento reconhece frases e pequenas variações de escrita.</p></div>

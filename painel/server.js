@@ -143,28 +143,85 @@ function serializar(configPath, tarefa) {
   return atual;
 }
 
+// Origens que o motor devolve quando reconhece um texto livre (e não um atalho).
+const ORIGENS_TEXTO_LIVRE = ['palavra_chave', 'pergunta', 'aproximacao'];
+const MEMORIA_PADRAO = 6;
+const MAX_HISTORICO_SIMULADOR = 40;
+const MAX_TEXTO_HISTORICO = 300;
+
+// Histórico mandado pelo navegador: só turnos válidos, os últimos N e com texto curto.
+function historicoDoSimulador(bruto, limite) {
+  if (!Array.isArray(bruto) || limite <= 0) return [];
+  return bruto
+    .filter((item) => objeto(item) && ['contato', 'bot'].includes(item.de) && typeof item.texto === 'string' && item.texto.trim())
+    .map((item) => ({ de: item.de, texto: item.texto.trim().slice(0, MAX_TEXTO_HISTORICO) }))
+    .slice(-limite);
+}
+
+// Valor efetivo da conversa natural: o simulador (quando informado) vence o evento, que vence a raiz.
+function conversaNaturalEfetiva(dados, saida, configUsada) {
+  if (typeof dados.conversaNatural === 'boolean') return dados.conversaNatural;
+  const id = dados.eventoId || saida.estado?.evento;
+  const evento = Array.isArray(dados.config?.eventos) ? dados.config.eventos.find((e) => objeto(e) && e.id === id) : null;
+  if (typeof evento?.ia?.conversa_natural === 'boolean') return evento.ia.conversa_natural;
+  return configUsada?.ia?.conversa_natural === true;
+}
+
+function partesDaResposta(lida, maximo) {
+  if (Array.isArray(lida.partes) && lida.partes.length) return lida.partes.map(String);
+  if (typeof IA.dividirMensagens === 'function') {
+    const partes = IA.dividirMensagens(lida.texto, maximo);
+    if (Array.isArray(partes) && partes.length) return partes;
+  }
+  return [lida.texto];
+}
+
 // Resolve como o workflow: motor de regras e, se ele não entender, a IA (quando houver
 // chave e a IA estiver ligada), respeitando o limite por contato informado pelo navegador.
+// Com a conversa natural: atalhos continuam prontos; texto livre reconhecido é reescrito pela IA
+// (modo "redigir", com a resposta pronta como reserva) e o não reconhecido usa o modo "responder".
 async function simularConversa(dados, { chaveIA, fetchIA, usosRecentes }) {
   const bruta = Eventos.resolver(dados.config, dados.texto, dados.estado || {}, { midia: dados.midia, incluirRascunhos: dados.incluirRascunhos === true, eventoId: dados.eventoId || undefined, sessao: dados.sessao || undefined });
   const { config: configUsada, ...saida } = bruta; // a configuração achatada fica no servidor
   const usos = Number.isInteger(dados.usosIA) && dados.usosIA >= 0 ? dados.usosIA : 0;
-  if (!IA.deveConsultar(configUsada, saida, dados.texto)) return { ...saida, usosIA: usos };
+  const natural = conversaNaturalEfetiva(dados, saida, configUsada);
   const conf = IA.configuracao(configUsada);
-  const informar = (resultado) => ({ ...saida, usosIA: usos, ia: { resultado } });
+  const opcao = natural && ORIGENS_TEXTO_LIVRE.includes(saida.origem) && !saida.transferir && !saida.silenciar && Array.isArray(configUsada?.opcoes)
+    ? configUsada.opcoes.find((o) => o && o.id === saida.intencao) : null;
+  const redigir = Boolean(opcao) && !dados.midia && conf.ativa === true && String(dados.texto || '').trim() !== '';
+  if (!redigir && !IA.deveConsultar(configUsada, saida, dados.texto)) return { ...saida, usosIA: usos };
+  const informar = (resultado, extra = {}) => ({ ...saida, usosIA: usos, ia: { resultado, ...extra, ...(redigir ? { reservaPronta: true } : {}) } });
   if (!chaveIA) return informar('sem_chave');
   if (conf.maxUsosPorContato > 0 && usos >= conf.maxUsosPorContato) return informar('limite_por_contato');
+  // Travas sem IA (frente A): mensagem barrada não chama a IA e recebe a resposta pronta.
+  if (typeof IA.filtrarEntrada === 'function') {
+    const filtro = IA.filtrarEntrada(dados.texto);
+    if (filtro && filtro.ok === false) return { ...informar('bloqueada', { trava: 'entrada', motivo: filtro.motivo }), memorizar: false };
+  }
   const agora = Date.now();
   while (usosRecentes.length && agora - usosRecentes[0] > 3600 * 1000) usosRecentes.shift();
   if (usosRecentes.length >= LIMITE_IA_SIMULADOR) return informar('limite_do_simulador');
   usosRecentes.push(agora);
-  const lida = await IA.consultar(configUsada, dados.texto, {
+  const contexto = {
     chave: chaveIA, fetch: fetchIA, fuso: process.env.TZ,
     ultimaIntencao: typeof dados.estado?.ultimaIntencao === 'string' ? dados.estado.ultimaIntencao : '',
-  });
-  if (!lida.ok) return { ...informar(lida.motivo), usosIA: usos + 1 };
+  };
+  if (natural) {
+    const memoria = Number.isInteger(conf.memoriaMensagens) ? conf.memoriaMensagens : MEMORIA_PADRAO;
+    Object.assign(contexto, { modo: redigir ? 'redigir' : 'responder', historico: historicoDoSimulador(dados.historico, memoria) });
+    if (redigir) contexto.opcao = opcao;
+    if (typeof dados.nomeContato === 'string' && dados.nomeContato.trim()) contexto.nomeContato = dados.nomeContato.trim().split(/\s+/)[0].slice(0, 40);
+  }
+  const lida = await IA.consultar(configUsada, dados.texto, contexto);
+  if (!lida.ok) {
+    const trava = typeof lida.trava === 'string' ? { trava: lida.trava } : {};
+    return { ...informar(lida.motivo, trava), usosIA: usos + 1, ...(lida.trava ? { memorizar: false } : {}) };
+  }
+  const partes = natural ? partesDaResposta(lida, conf.maxMensagens || 3) : [lida.texto];
+  const resposta = partes.join('\n\n');
+  if (redigir) return { ...saida, origem: 'ia_redigida', resposta, partes, usosIA: usos + 1, ia: { resultado: 'respondeu', modo: 'redigir' } };
   const estado = { falhas: 0, ultimaIntencao: 'ia', ultimaResposta: IA.assinatura(lida.texto), pendentes: [], evento: saida.estado?.evento, escolhendoEvento: saida.estado?.escolhendoEvento };
-  return { intencao: 'ia', origem: 'ia', resposta: lida.texto, transferir: false, estado, usosIA: usos + 1, ia: { resultado: 'respondeu' } };
+  return { intencao: 'ia', origem: 'ia', resposta, ...(natural ? { partes } : {}), transferir: false, estado, usosIA: usos + 1, ia: { resultado: 'respondeu', ...(natural ? { modo: 'responder' } : {}) } };
 }
 
 // Situação do serviço do WhatsApp (WAHA): só a rota pública /ping, sem chave da API.
@@ -482,7 +539,7 @@ function criarServidor({ configPath = path.join(__dirname, '../config/chatbot.js
       }
       if (req.method === 'POST' && rota === '/api/simular') {
         const dados = await lerCorpo(req);
-        if (!objeto(dados) || typeof dados.texto !== 'string' || dados.texto.length > 8000 || (dados.estado !== undefined && !objeto(dados.estado)) || (dados.midia !== undefined && typeof dados.midia !== 'boolean' && typeof dados.midia !== 'string') || (dados.usosIA !== undefined && !Number.isInteger(dados.usosIA)) || (dados.eventoId !== undefined && typeof dados.eventoId !== 'string') || (dados.incluirRascunhos !== undefined && typeof dados.incluirRascunhos !== 'boolean') || (dados.sessao !== undefined && (typeof dados.sessao !== 'string' || !SESSAO.test(dados.sessao)))) throw erroHttp(400, 'Envie um texto de até 8.000 caracteres e um estado de conversa válido.');
+        if (!objeto(dados) || typeof dados.texto !== 'string' || dados.texto.length > 8000 || (dados.estado !== undefined && !objeto(dados.estado)) || (dados.midia !== undefined && typeof dados.midia !== 'boolean' && typeof dados.midia !== 'string') || (dados.usosIA !== undefined && !Number.isInteger(dados.usosIA)) || (dados.eventoId !== undefined && typeof dados.eventoId !== 'string') || (dados.conversaNatural !== undefined && typeof dados.conversaNatural !== 'boolean') || (dados.historico !== undefined && (!Array.isArray(dados.historico) || dados.historico.length > MAX_HISTORICO_SIMULADOR)) || (dados.nomeContato !== undefined && typeof dados.nomeContato !== 'string') || (dados.incluirRascunhos !== undefined && typeof dados.incluirRascunhos !== 'boolean') || (dados.sessao !== undefined && (typeof dados.sessao !== 'string' || !SESSAO.test(dados.sessao)))) throw erroHttp(400, 'Envie um texto de até 8.000 caracteres e um estado de conversa válido.');
         const validacao = validarConfig(dados.config);
         if (validacao.erros.length) throw erroHttp(422, 'Revise a configuração antes de simular.', validacao);
         return responder(res, 200, await simularConversa(dados, { chaveIA, fetchIA, usosRecentes }));

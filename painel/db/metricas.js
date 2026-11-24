@@ -32,6 +32,8 @@ async function calcularMetricas(consultar, { inicio, fim, fuso }) {
     iaTotaisRes,
     iaFalhasRes,
     iaModeloRes,
+    iaReservaRes,
+    travasRes,
   ] = await Promise.all([
     consultar(
       `SELECT count(*) AS recebidas,
@@ -56,6 +58,7 @@ async function calcularMetricas(consultar, { inicio, fim, fuso }) {
     consultar(
       `SELECT CASE
                 WHEN motivo = 'transferida_para_atendimento_humano' THEN 'atendimento_humano'
+                WHEN motivo = 'ia_redigida' THEN 'ia_redigida'
                 WHEN motivo = 'ia' OR intencao = 'ia' THEN 'ia'
                 WHEN motivo IN ('nao_reconhecida', 'midia_sem_texto', 'fallback_esgotado') THEN 'fallback'
                 ELSE 'menu_regras'
@@ -125,6 +128,27 @@ async function calcularMetricas(consultar, { inicio, fim, fuso }) {
         ORDER BY total DESC, ia_modelo`,
       periodo,
     ),
+
+    // Respostas prontas enviadas porque a IA falhou. O n8n grava ia_reserva_pronta no log e o
+    // ingestor guarda os campos sem coluna própria em "extra" (jsonb).
+    consultar(
+      `SELECT count(*) AS total
+         FROM registros
+        WHERE quando >= $1 AND quando < $2
+          AND extra->>'ia_reserva_pronta' = 'true'`,
+      periodo,
+    ),
+
+    // Tentativas bloqueadas pelas travas da IA (campo de log "trava", também em "extra").
+    consultar(
+      `SELECT extra->>'trava' AS tipo, count(*) AS total
+         FROM registros
+        WHERE quando >= $1 AND quando < $2
+          AND extra->>'trava' IN ('entrada', 'classificador', 'saida', 'contato')
+        GROUP BY 1
+        ORDER BY total DESC, tipo`,
+      periodo,
+    ),
   ]);
 
   const totais = totaisRes.rows[0] ?? {};
@@ -138,6 +162,7 @@ async function calcularMetricas(consultar, { inicio, fim, fuso }) {
   }
 
   const iaTotais = iaTotaisRes.rows[0] ?? {};
+  const travasPorTipo = travasRes.rows.map((linha) => ({ tipo: linha.tipo, total: numero(linha.total) }));
 
   const duvidas = agruparDuvidas(
     duvidasRes.rows.map((linha) => ({ texto: linha.texto, total: numero(linha.total) })),
@@ -175,6 +200,12 @@ async function calcularMetricas(consultar, { inicio, fim, fuso }) {
         modelo: linha.modelo,
         total: numero(linha.total),
       })),
+      // Resposta pronta enviada por falha da IA (cota, erro, tempo esgotado ou resposta barrada).
+      reservaPronta: numero(iaReservaRes.rows[0]?.total),
+      travas: {
+        total: travasPorTipo.reduce((soma, item) => soma + item.total, 0),
+        porTipo: travasPorTipo,
+      },
     },
     porHora,
     duvidas,

@@ -73,6 +73,15 @@ if (executou('Redis: sair do atendimento humano')) {
 
 const quando = $now.toISO();
 const ia = (base.ia && base.ia.resultado) || undefined;
+// Trava da IA que barrou a mensagem (entrada, classificador, saida ou contato) e nota do classificador.
+const trava = (base.ia && base.ia.trava) || undefined;
+const iaScore = base.ia && typeof base.ia.score === 'number' ? Math.round(base.ia.score * 100) / 100 : undefined;
+// Conversa natural: a IA devia redigir a resposta oficial mas não pôde (falha, limite ou trava): foi a pronta.
+const reservaPronta = resultado === 'respondida' && base.ia && base.ia.modo === 'redigir' && base.ia.resultado !== 'respondeu' ? true : undefined;
+const partes = resultado === 'respondida' && Array.isArray(base.partes) ? base.partes.length : undefined;
+// Áudio: o texto transcrito e o resultado da transcrição vêm de "Resolver conversa" (via "Aplicar transcrição").
+const dadosResolvidos = executou('Resolver conversa') ? saida('Resolver conversa').registro : undefined;
+const dados = dadosResolvidos && typeof dadosResolvidos === 'object' ? dadosResolvidos : interpretada.registro;
 const registro = {
   quando,
   resultado,
@@ -84,7 +93,13 @@ const registro = {
   // Modelo que respondeu e quantas tentativas falharam antes dele (nunca o texto do contato).
   iaModelo: ia === 'respondeu' && base.ia.modelo ? base.ia.modelo : undefined,
   iaTentativas: Array.isArray(base.ia && base.ia.tentativas) && base.ia.tentativas.length > 0 ? base.ia.tentativas.length : undefined,
+  trava,
+  iaScore,
+  ia_reserva_pronta: reservaPronta,
+  partes,
   contato: base.contato,
+  audio: dados && dados.audio ? true : undefined,
+  transcricao: dados && dados.audio ? dados.transcricao : undefined,
   msg: base.msg,
   detalhe: detalhe || undefined,
 };
@@ -96,7 +111,6 @@ const registro = {
 // de uma vez ao reconectar (todas as conversas do celular enquanto o robô esteve desligado):
 // não são respondidas e só ocupariam a tela "Conversas" com conversas pessoais.
 const NAO_REGISTRAR = ['enviada_pelo_robo', 'mensagem_duplicada', 'mensagem_antiga', 'recebida_com_o_robo_desligado'];
-const dados = interpretada.registro;
 let conversa = '';
 if (dados && typeof dados === 'object' && !NAO_REGISTRAR.includes(motivo)) {
   const doAtendente = ['reativar', 'pausar'].includes(interpretada.acao) || motivo === 'enviada_pelo_atendente';
@@ -112,10 +126,15 @@ if (dados && typeof dados === 'object' && !NAO_REGISTRAR.includes(motivo)) {
     nome: dados.nome || undefined,
     texto: dados.texto,
     midia: dados.midia || undefined,
+    audio: dados.audio || undefined,
+    transcricao: dados.audio ? dados.transcricao : undefined,
     resultado,
     motivo: motivo || undefined,
     intencao: doAtendente ? undefined : base.intencao,
     ia,
+    trava,
+    ia_reserva_pronta: reservaPronta,
+    partes,
     resposta: typeof resposta === 'string' && resposta ? resposta : undefined,
     transferida: base.transferir === true && resultado === 'respondida' ? true : undefined,
     voltou_do_atendimento: detalhe === 'contato_voltou_do_atendimento_humano' ? true : undefined,

@@ -137,6 +137,37 @@ info.registro = {
 };
 const normalizado = normalizar(texto);
 
+// ---------- áudio (mensagem de voz) ----------
+// No GOWS o WhatsApp informa o áudio em _data.Message.audioMessage (seconds, PTT, mimetype). Sem
+// download automático (WAHA_EVENTS_DOWNLOAD_MEDIA=false), media.url vem vazio e o arquivo é pedido
+// depois, só deste áudio, pela rota da mensagem. Aqui só se decide SE vale transcrever.
+const dadosMsg = (p._data && typeof p._data === 'object' && p._data.Message && typeof p._data.Message === 'object') ? p._data.Message : {};
+const msgAudio = (dadosMsg.audioMessage && typeof dadosMsg.audioMessage === 'object') ? dadosMsg.audioMessage
+  : (dadosMsg.AudioMessage && typeof dadosMsg.AudioMessage === 'object') ? dadosMsg.AudioMessage : null;
+const tipoMidia = String(infoWhatsApp.MediaType ?? infoWhatsApp.Type ?? '').toLowerCase();
+const mimeMidia = String(p.media?.mimetype ?? msgAudio?.mimetype ?? msgAudio?.Mimetype ?? '').toLowerCase();
+const ehAudio = p.hasMedia === true && (Boolean(msgAudio) || mimeMidia.startsWith('audio') || ['ptt', 'audio'].includes(tipoMidia));
+const segundosBrutos = numero(msgAudio?.seconds ?? msgAudio?.Seconds ?? p.media?.duration, 0);
+const segundosAudio = segundosBrutos > 0 ? Math.round(segundosBrutos) : null;
+let audio;
+if (ehAudio && !doProprioNumero && !texto.trim()) {
+  const plano = IA.planoDeAudio(cfg, { segundos: segundosAudio });
+  const enc = encodeURIComponent;
+  audio = {
+    eh: true,
+    segundos: segundosAudio,
+    transcrever: plano.transcrever,
+    // ok = ainda por transcrever; os nós de áudio trocam por ok ou erro_*.
+    transcricao: plano.transcrever ? undefined : plano.motivo,
+    modelo: plano.modelo,
+    urlTranscricao: plano.url,
+    // Rota do WAHA que devolve a mensagem já recebida com a mídia baixada (só sob demanda).
+    rota: '/api/' + enc(base.sessao) + '/chats/' + enc(chatId) + '/messages/' + enc(idMensagem) + '?downloadMedia=true',
+  };
+  info.registro.audio = true;
+  if (!plano.transcrever) info.registro.transcricao = plano.motivo;
+}
+
 const chavePausa = 'pausa:' + base.sessao + ':' + chatId;
 const horasPausa = Math.max(numero(humano.horas_pausa, 24), 0.25);
 const ttlPausa = Math.round(horasPausa * 3600);
@@ -227,6 +258,7 @@ return [
       config: cfg,
       texto,
       midia: !texto.trim() && p.hasMedia === true,
+      audio,
       chaveConversa: 'conversa:' + base.sessao + ':' + chatId,
       atrasoSegundos,
       agruparSegundos,

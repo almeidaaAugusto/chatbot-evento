@@ -33,7 +33,7 @@ function criarBancoFalso({ noAr = true } = {}) {
     erros: [],
     ingestao: new Map(),
     metricasChamadas: [],
-    metricas: { totais: { recebidas: 0, contatos: 0, respondidas: 0, naoRespondidas: 0 }, porDia: [], porOrigem: [], porIntencao: [], ia: { consultas: 0, respostas: 0, falhas: [], porModelo: [] }, porHora: [], duvidas: [] }
+    metricas: { totais: { recebidas: 0, contatos: 0, respondidas: 0, naoRespondidas: 0 }, porDia: [], porOrigem: [], porIntencao: [], ia: { consultas: 0, respostas: 0, falhas: [], porModelo: [], reservaPronta: 0, travas: { total: 0, porTipo: [] } }, porHora: [], duvidas: [] }
   };
   let gancho = null;
   const exigir = () => { if (!estado.noAr) throw erroBanco(); };
