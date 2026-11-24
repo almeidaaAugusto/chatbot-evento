@@ -79,6 +79,9 @@ const iaScore = base.ia && typeof base.ia.score === 'number' ? Math.round(base.i
 // Conversa natural: a IA devia redigir a resposta oficial mas não pôde (falha, limite ou trava): foi a pronta.
 const reservaPronta = resultado === 'respondida' && base.ia && base.ia.modo === 'redigir' && base.ia.resultado !== 'respondeu' ? true : undefined;
 const partes = resultado === 'respondida' && Array.isArray(base.partes) ? base.partes.length : undefined;
+// Áudio: o texto transcrito e o resultado da transcrição vêm de "Resolver conversa" (via "Aplicar transcrição").
+const dadosResolvidos = executou('Resolver conversa') ? saida('Resolver conversa').registro : undefined;
+const dados = dadosResolvidos && typeof dadosResolvidos === 'object' ? dadosResolvidos : interpretada.registro;
 const registro = {
   quando,
   resultado,
@@ -95,6 +98,8 @@ const registro = {
   ia_reserva_pronta: reservaPronta,
   partes,
   contato: base.contato,
+  audio: dados && dados.audio ? true : undefined,
+  transcricao: dados && dados.audio ? dados.transcricao : undefined,
   msg: base.msg,
   detalhe: detalhe || undefined,
 };
@@ -106,7 +111,6 @@ const registro = {
 // de uma vez ao reconectar (todas as conversas do celular enquanto o robô esteve desligado):
 // não são respondidas e só ocupariam a tela "Conversas" com conversas pessoais.
 const NAO_REGISTRAR = ['enviada_pelo_robo', 'mensagem_duplicada', 'mensagem_antiga', 'recebida_com_o_robo_desligado'];
-const dados = interpretada.registro;
 let conversa = '';
 if (dados && typeof dados === 'object' && !NAO_REGISTRAR.includes(motivo)) {
   const doAtendente = ['reativar', 'pausar'].includes(interpretada.acao) || motivo === 'enviada_pelo_atendente';
@@ -122,6 +126,8 @@ if (dados && typeof dados === 'object' && !NAO_REGISTRAR.includes(motivo)) {
     nome: dados.nome || undefined,
     texto: dados.texto,
     midia: dados.midia || undefined,
+    audio: dados.audio || undefined,
+    transcricao: dados.audio ? dados.transcricao : undefined,
     resultado,
     motivo: motivo || undefined,
     intencao: doAtendente ? undefined : base.intencao,

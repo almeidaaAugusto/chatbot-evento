@@ -7,7 +7,14 @@ const ia = final.ia ?? {};
 const memoria = final.memoria ?? {};
 const partes = (Array.isArray(final.partes) && final.partes.length ? final.partes : [final.resposta])
   .map((parte) => String(parte ?? '')).filter((parte) => parte.trim() !== '');
-const textoDoContato = String(base.texto ?? '').trim();
+// Em áudio transcrito, o texto da mensagem é a transcrição (decidida em "Resolver conversa").
+let textoResolvido = base.texto;
+try {
+  textoResolvido = $('Resolver conversa').first().json.texto ?? base.texto;
+} catch (e) {
+  textoResolvido = base.texto;
+}
+const textoDoContato = String(textoResolvido ?? '').trim();
 
 let valorHistorico = '';
 const guardarMemoria = memoria.ativa === true && Number(memoria.max) > 0 && !ia.trava && textoDoContato !== '' && partes.length > 0;

@@ -1,6 +1,14 @@
 // O gerador embute aqui o motor de regras (Chatbot), a camada de vários eventos (Eventos) e o
 // assistente de IA (IA), os mesmos que o simulador do painel utiliza.
-const base = $('Interpretar mensagem').first().json;
+const interpretada = $('Interpretar mensagem').first().json;
+// Áudio: o texto transcrito (ou o resultado da falha) vale como o texto da mensagem.
+let transcricao = null;
+try {
+  if ($('Aplicar transcrição').isExecuted === true) transcricao = $('Aplicar transcrição').first().json;
+} catch (e) {
+  transcricao = null;
+}
+const base = transcricao ? { ...interpretada, ...transcricao } : interpretada;
 let estado = {};
 try {
   const guardado = $('Redis: ler conversa').first().json.conversa;

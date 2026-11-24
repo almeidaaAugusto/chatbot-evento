@@ -33,6 +33,7 @@ const DX = 3600;
 
 // Bibliotecas de lib/ embutidas nos nós de código que as utilizam (o n8n não lê arquivos).
 const BIBLIOTECAS = {
+  'interpretar.js': [['IA', 'ia.js']],
   'resolver-conversa.js': [['Chatbot', 'conversa.js'], ['Eventos', 'eventos.js'], ['IA', 'ia.js']],
   'aplicar-resposta-ia.js': [['IA', 'ia.js']],
   'aplicar-classificador.js': [['IA', 'ia.js']],
@@ -337,6 +338,43 @@ function workflowPrincipal() {
     noRedis('Redis: ler ataques', [3380, -180], {
       operation: 'get', propertyName: 'ataques', key: CHAVE_ATAQUE, keyType: 'string', options: {},
     }, OPCIONAL),
+    // Áudio (mensagem de voz): baixa só este áudio do WAHA, transcreve na Groq e segue com o texto.
+    // Qualquer falha continua o fluxo: "Aplicar transcrição" decide o resultado e, sem texto, vale a resposta de mídia.
+    noSe('Áudio a transcrever?', [3380, -1100], '={{ Boolean(' + BASE + '.audio && ' + BASE + '.audio.transcrever === true) }}'),
+    no('WAHA: obter áudio', 'n8n-nodes-base.httpRequest', 4.2, [3600, -1100], {
+      method: 'GET',
+      url: '={{ ' + JSON.stringify(WAHA) + " + " + BASE + '.audio.rota }}',
+      authentication: 'genericCredentialType',
+      genericAuthType: 'httpHeaderAuth',
+      options: { timeout: 15000 },
+    }, { credentials: CRED_WAHA, onError: 'continueRegularOutput' }),
+    noCodigo('Localizar arquivo do áudio', [3820, -1100], 'localizar-audio.js'),
+    no('WAHA: baixar áudio', 'n8n-nodes-base.httpRequest', 4.2, [4040, -1100], {
+      method: 'GET',
+      url: '={{ ' + JSON.stringify(WAHA) + " + ($json.rotaArquivo || '/api/files/inexistente') }}",
+      authentication: 'genericCredentialType',
+      genericAuthType: 'httpHeaderAuth',
+      options: { timeout: 20000, response: { response: { responseFormat: 'file', outputPropertyName: 'data' } } },
+    }, { credentials: CRED_WAHA, onError: 'continueRegularOutput' }),
+    noCodigo('Nomear áudio', [4260, -1100], 'nomear-audio.js'),
+    no('IA: transcrever áudio', 'n8n-nodes-base.httpRequest', 4.2, [4480, -1100], {
+      method: 'POST',
+      url: '={{ ' + BASE + '.audio.urlTranscricao }}',
+      authentication: 'genericCredentialType',
+      genericAuthType: 'httpHeaderAuth',
+      sendBody: true,
+      contentType: 'multipart-form-data',
+      bodyParameters: {
+        parameters: [
+          { parameterType: 'formBinaryData', name: 'file', inputDataFieldName: 'data' },
+          { name: 'model', value: '={{ ' + BASE + '.audio.modelo }}' },
+          { name: 'language', value: 'pt' },
+          { name: 'response_format', value: 'json' },
+        ],
+      },
+      options: { timeout: 20000 },
+    }, { credentials: CRED_IA, onError: 'continueRegularOutput' }),
+    noCodigo('Aplicar transcrição', [4700, -1100], 'aplicar-transcricao.js'),
     noCodigo('Resolver conversa', [3380, -300], 'resolver-conversa.js'),
     noRedis('Redis: contador por hora', [3380, -100], {
       operation: 'incr',
@@ -535,7 +573,15 @@ function workflowPrincipal() {
   ligar(c, 'Redis: liberar trava (superada)', 'Montar linha de log');
   ligar(c, 'Redis: ler conversa', 'Redis: ler histórico');
   ligar(c, 'Redis: ler histórico', 'Redis: ler ataques');
-  ligar(c, 'Redis: ler ataques', 'Resolver conversa');
+  ligar(c, 'Redis: ler ataques', 'Áudio a transcrever?');
+  ligar(c, 'Áudio a transcrever?', 'WAHA: obter áudio', 0);
+  ligar(c, 'Áudio a transcrever?', 'Resolver conversa', 1);
+  ligar(c, 'WAHA: obter áudio', 'Localizar arquivo do áudio');
+  ligar(c, 'Localizar arquivo do áudio', 'WAHA: baixar áudio');
+  ligar(c, 'WAHA: baixar áudio', 'Nomear áudio');
+  ligar(c, 'Nomear áudio', 'IA: transcrever áudio');
+  ligar(c, 'IA: transcrever áudio', 'Aplicar transcrição');
+  ligar(c, 'Aplicar transcrição', 'Resolver conversa');
   ligar(c, 'Resolver conversa', 'Redis: contador por hora');
   ligar(c, 'É a última da sequência?', 'Montar linha de log', 1);
   // Três caminhos até "Resposta final": sem IA, IA barrada pelo limite e IA consultada.

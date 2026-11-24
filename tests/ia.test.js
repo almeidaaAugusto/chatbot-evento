@@ -920,3 +920,58 @@ test('D8: consultar só põe o rodapé quando o histórico está vazio', async (
   const seguinte = await passos([{ de: 'contato', texto: 'oi' }, { de: 'bot', texto: 'Fala!' }]);
   assert.equal(seguinte.texto, 'Começa às 22h.');
 });
+
+// ---------- transcrição de áudio (mensagem de voz) ----------
+
+const GROQ_TRANSCRICAO = 'https://api.groq.com/openai/v1/audio/transcriptions';
+
+test('áudio: transcreve com a IA ligada na Groq, com o modelo padrão e dentro do limite', () => {
+  const plano = IA.planoDeAudio(exemplo(), { segundos: 30 });
+  assert.deepEqual(plano, { transcrever: true, motivo: 'ok', modelo: 'whisper-large-v3-turbo', maxSegundos: 120, url: GROQ_TRANSCRICAO });
+});
+
+test('áudio: o limite de duração vem de ia.audio.max_segundos (61 s passa do limite de 60; 60 s não)', () => {
+  const cfg = exemplo();
+  cfg.ia.audio = { max_segundos: 60 };
+  assert.equal(IA.planoDeAudio(cfg, { segundos: 61 }).motivo, 'longo');
+  assert.equal(IA.planoDeAudio(cfg, { segundos: 61 }).transcrever, false);
+  assert.equal(IA.planoDeAudio(cfg, { segundos: 60 }).motivo, 'ok');
+  assert.equal(IA.planoDeAudio(cfg, { segundos: 60 }).transcrever, true);
+});
+
+test('áudio: sem duração conhecida (ausente, zero ou NaN) não transcreve', () => {
+  const cfg = exemplo();
+  for (const info of [undefined, {}, { segundos: 0 }, { segundos: NaN }, { segundos: 'abc' }]) {
+    const plano = IA.planoDeAudio(cfg, info);
+    assert.equal(plano.transcrever, false, JSON.stringify(info));
+    assert.equal(plano.motivo, 'erro_sem_duracao', JSON.stringify(info));
+  }
+  assert.equal(IA.planoDeAudio(cfg).motivo, 'erro_sem_duracao', 'chamada sem o segundo argumento');
+});
+
+test('áudio: desativado com a IA desligada, com ia.audio.ativo false ou com provedor que não é a Groq', () => {
+  const desligada = exemplo();
+  desligada.ia.ativa = false;
+  assert.equal(IA.planoDeAudio(desligada, { segundos: 10 }).motivo, 'desativada');
+  const semAudio = exemplo();
+  semAudio.ia.audio = { ativo: false };
+  assert.equal(IA.planoDeAudio(semAudio, { segundos: 10 }).motivo, 'desativada');
+  assert.equal(IA.planoDeAudio(semAudio, { segundos: 10 }).transcrever, false);
+  const xai = exemplo();
+  xai.ia.provedor = 'xai';
+  const plano = IA.planoDeAudio(xai, { segundos: 10 });
+  assert.equal(plano.transcrever, false);
+  assert.equal(plano.motivo, 'desativada');
+});
+
+test('áudio: modelo personalizado é respeitado', () => {
+  const cfg = exemplo();
+  cfg.ia.audio = { modelo: 'whisper-large-v3' };
+  assert.equal(IA.planoDeAudio(cfg, { segundos: 5 }).modelo, 'whisper-large-v3');
+});
+
+test('áudio: a URL de transcrição segue o servidor configurado (troca /chat/completions por /audio/transcriptions)', () => {
+  const cfg = exemplo();
+  cfg.ia.url = 'https://servidor.example.com/ia/v1/chat/completions';
+  assert.equal(IA.planoDeAudio(cfg, { segundos: 5 }).url, 'https://servidor.example.com/ia/v1/audio/transcriptions');
+});

@@ -881,3 +881,220 @@ test('log registra ia_redigida, partes, reserva pronta e trava sem texto do cont
   assert.equal(conversa.motivo, 'ia_redigida');
   assert.equal(conversa.resposta, 'a\n\nb');
 });
+
+// ---------- áudio: transcrição antes da resolução da conversa ----------
+
+const ROTA_AUDIO = '/api/default/chats/5599000000001%40c.us/messages/false_5599000000001%40c.us_ABC?downloadMedia=true';
+const configComIA = () => { const c = configDeTeste(); c.ia.ativa = true; return c; };
+const payloadAudio = (mensagem = { seconds: 8, PTT: true }, extra = {}) => ({
+  id: 'false_5599000000001@c.us_ABC', timestamp: Math.floor(Date.now() / 1000), from: '5599000000001@c.us', to: '5599000000099@c.us',
+  fromMe: false, body: '', hasMedia: true, media: { url: null, mimetype: 'audio/ogg; codecs=opus' },
+  _data: { Info: { MediaType: 'ptt' }, Message: { audioMessage: mensagem } }, ...extra,
+});
+const interpretarPayload = (payload, cfg = configComIA()) => codigoDoNo('Interpretar mensagem')(nome => ({ first: () => ({ json: {
+  'Webhook WAHA': { body: { event: 'message.any', session: 'default', payload } },
+  'Extrair configuração': { data: JSON.stringify(cfg) },
+  'Redis: estado da sessão': { sessao: '' },
+}[nome] }) }))
+  .then(saida => saida[0].json);
+
+test('áudio: o Redis de ataques leva ao IF de áudio; o ramo do áudio baixa, transcreve e aplica antes de resolver', () => {
+  assert.equal(destino('Redis: ler ataques'), 'Áudio a transcrever?');
+  assert.equal(destino('Áudio a transcrever?', 0), 'WAHA: obter áudio');
+  assert.equal(destino('WAHA: obter áudio'), 'Localizar arquivo do áudio');
+  assert.equal(destino('Localizar arquivo do áudio'), 'WAHA: baixar áudio');
+  assert.equal(destino('WAHA: baixar áudio'), 'Nomear áudio');
+  assert.equal(destino('Nomear áudio'), 'IA: transcrever áudio');
+  assert.equal(destino('IA: transcrever áudio'), 'Aplicar transcrição');
+  assert.equal(destino('Aplicar transcrição'), 'Resolver conversa');
+  assert.equal(destino('Áudio a transcrever?', 1), 'Resolver conversa', 'sem áudio a transcrever, segue direto');
+  assert.equal(buscarNo('Áudio a transcrever?').type, 'n8n-nodes-base.if');
+});
+
+test('áudio: os três nós HTTP continuam o fluxo mesmo com erro e usam as credenciais certas', () => {
+  for (const nome of ['WAHA: obter áudio', 'WAHA: baixar áudio', 'IA: transcrever áudio']) {
+    const no = buscarNo(nome);
+    assert.equal(no.type, 'n8n-nodes-base.httpRequest', nome);
+    assert.equal(no.typeVersion, 4.2, nome);
+    assert.equal(no.onError, 'continueRegularOutput', nome);
+  }
+  for (const nome of ['WAHA: obter áudio', 'WAHA: baixar áudio']) {
+    assert.equal(buscarNo(nome).credentials.httpHeaderAuth.name, 'WAHA - chave da API', nome);
+  }
+  const baixar = buscarNo('WAHA: baixar áudio');
+  assert.equal(baixar.parameters.options.response.response.responseFormat, 'file');
+  assert.equal(baixar.parameters.options.response.response.outputPropertyName, 'data');
+  const transcrever = buscarNo('IA: transcrever áudio');
+  const p = transcrever.parameters;
+  assert.equal(p.contentType, 'multipart-form-data');
+  const campos = p.bodyParameters.parameters;
+  assert.deepEqual(campos.find(c => c.parameterType === 'formBinaryData'), { parameterType: 'formBinaryData', name: 'file', inputDataFieldName: 'data' });
+  assert.match(campos.find(c => c.name === 'model').value, /audio\.modelo/);
+  assert.equal(campos.find(c => c.name === 'language').value, 'pt');
+  assert.equal(campos.find(c => c.name === 'response_format').value, 'json');
+  assert.equal(transcrever.credentials.httpHeaderAuth.name, 'IA - chave da API');
+  assert.ok(p.options.timeout <= 20000, 'a transcrição não pode segurar a execução');
+});
+
+test('áudio: nenhum nó novo grava o áudio em disco (só os três arquivos que já existiam)', () => {
+  const gravadores = workflow.nodes.filter(n => n.type === 'n8n-nodes-base.readWriteFile').map(n => n.name).sort();
+  assert.deepEqual(gravadores, ['Ler configuração', 'Gravar no arquivo de conversas', 'Gravar no arquivo de log'].sort());
+});
+
+test('Interpretar mensagem: áudio de voz vira transcrição pendente com a rota do WAHA para baixar o arquivo', async () => {
+  const agora = await interpretarPayload(payloadAudio());
+  assert.equal(agora.acao, 'processar');
+  assert.equal(agora.audio.eh, true);
+  assert.equal(agora.audio.transcrever, true);
+  assert.equal(agora.audio.rota, ROTA_AUDIO);
+  assert.equal(agora.audio.segundos, 8);
+  assert.equal(agora.registro.audio, true);
+  assert.equal(agora.registro.transcricao, undefined, 'só registra o motivo quando não transcreve');
+});
+
+test('Interpretar mensagem: áudio longo, IA desligada e áudio sem duração não são transcritos e dizem o motivo', async () => {
+  const longo = await interpretarPayload(payloadAudio({ seconds: 500, PTT: true }));
+  assert.equal(longo.audio.transcrever, false);
+  assert.equal(longo.registro.transcricao, 'longo');
+
+  const desligada = configComIA();
+  desligada.ia.ativa = false;
+  const semIA = await interpretarPayload(payloadAudio(), desligada);
+  assert.equal(semIA.audio.transcrever, false);
+  assert.equal(semIA.registro.transcricao, 'desativada');
+
+  const semDuracao = await interpretarPayload(payloadAudio({ PTT: true }));
+  assert.equal(semDuracao.audio.transcrever, false);
+  assert.equal(semDuracao.registro.transcricao, 'erro_sem_duracao');
+});
+
+test('Interpretar mensagem: foto não é áudio (vai para a resposta de mídia); legenda ou texto tem prioridade sobre o áudio', async () => {
+  const foto = await interpretarPayload({ id: 'false_5599000000001@c.us_FOTO', timestamp: Math.floor(Date.now() / 1000), from: '5599000000001@c.us',
+    to: '5599000000099@c.us', fromMe: false, body: '', hasMedia: true, media: { url: null, mimetype: 'image/jpeg' },
+    _data: { Info: { MediaType: 'image' }, Message: { imageMessage: {} } } });
+  assert.equal(foto.audio, undefined);
+  assert.equal(foto.midia, true);
+
+  const legendado = await interpretarPayload(payloadAudio({ seconds: 8, PTT: true }, { body: 'quanto custa?' }));
+  assert.equal(legendado.audio, undefined, 'com texto, a mensagem não é transcrita');
+  assert.equal(legendado.texto, 'quanto custa?');
+  assert.equal(legendado.midia, false);
+});
+
+test('Interpretar mensagem: áudio enviado pelo próprio número nunca é transcrito', async () => {
+  const doAtendente = await interpretarPayload(payloadAudio({ seconds: 8, PTT: true }, { fromMe: true, from: '5599000000099@c.us', to: '5599000000001@c.us' }));
+  assert.equal(doAtendente.audio, undefined);
+});
+
+test('Localizar arquivo do áudio: o caminho /api/files/ sai da resposta do WAHA; sem mídia, o erro é informado', async () => {
+  const localizar = (resposta) => codigoDoNo('Localizar arquivo do áudio')(nome => ({ first: () => ({ json: nome === 'WAHA: obter áudio' ? resposta : {} }) }));
+  const achado = (await localizar({ media: { url: 'http://localhost:3000/api/files/abc123.oga' } }))[0].json;
+  assert.equal(achado.rotaArquivo, '/api/files/abc123.oga');
+  assert.equal(achado.erro, '');
+  const comQuery = (await localizar({ media: { url: 'http://localhost:3000/api/files/abc123.oga?download=1' } }))[0].json;
+  assert.equal(comQuery.rotaArquivo, '/api/files/abc123.oga', 'a query da URL do WAHA não entra na rota');
+  const semMidia = (await localizar({ id: 'false_5599000000001@c.us_ABC' }))[0].json;
+  assert.equal(semMidia.rotaArquivo, '');
+  assert.notEqual(semMidia.erro, '');
+});
+
+test('Nomear áudio: o arquivo baixado vira audio.ogg (a Groq não aceita .oga) e o resultado indica o download', async () => {
+  const nomear = (item) => codigoDoNo('Nomear áudio')(() => ({}), { first: () => item });
+  const baixado = (await nomear({ json: {}, binary: { data: { mimeType: 'audio/ogg; codecs=opus', fileName: 'x.oga' } } }))[0];
+  assert.equal(baixado.binary.data.fileName, 'audio.ogg');
+  assert.equal(baixado.json.baixou, true);
+  const semArquivo = (await nomear({ json: {} }))[0];
+  assert.equal(semArquivo.json.baixou, false);
+  assert.equal(semArquivo.binary, undefined);
+});
+
+test('Aplicar transcrição: a transcrição vira o texto da mensagem, com espaços normalizados', async () => {
+  const porAudio = { ...mensagemBase(''), midia: true, audio: { eh: true, segundos: 8, transcrever: true, modelo: 'whisper-large-v3-turbo' },
+    registro: { ...registroBase, texto: '', midia: true } };
+  const aplicar = (saidas) => codigoDoNo('Aplicar transcrição')(nome => ({ first: () => ({ json: saidas[nome] ?? {} }) }));
+  const ok = (await aplicar({ 'Interpretar mensagem': porAudio, 'Nomear áudio': { baixou: true }, 'IA: transcrever áudio': { text: '  oi,   tudo bem? ' } }))[0].json;
+  assert.equal(ok.texto, 'oi, tudo bem?');
+  assert.equal(ok.midia, false);
+  assert.equal(ok.audio.transcricao, 'ok');
+  assert.equal(ok.registro.texto, 'oi, tudo bem?');
+  assert.equal(ok.registro.audio, true);
+
+  const falhou = (await aplicar({ 'Interpretar mensagem': porAudio, 'Nomear áudio': { baixou: true }, 'IA: transcrever áudio': { error: { message: 'fora do ar' } } }))[0].json;
+  assert.equal(falhou.audio.transcricao, 'erro_transcricao');
+  assert.equal(falhou.texto, '');
+  assert.equal(falhou.midia, true, 'sem transcrição, vale a resposta de mídia');
+  assert.equal(falhou.registro.texto, '');
+
+  const semArquivo = (await aplicar({ 'Interpretar mensagem': porAudio, 'Nomear áudio': { baixou: false }, 'IA: transcrever áudio': {} }))[0].json;
+  assert.equal(semArquivo.audio.transcricao, 'erro_download');
+  assert.equal(semArquivo.midia, true);
+
+  const vazia = (await aplicar({ 'Interpretar mensagem': porAudio, 'Nomear áudio': { baixou: true }, 'IA: transcrever áudio': { text: '' } }))[0].json;
+  assert.equal(vazia.audio.transcricao, 'erro_vazio');
+  assert.equal(vazia.texto, '');
+  assert.equal(vazia.midia, true);
+});
+
+test('Resolver conversa: transcrição executada vale como texto da mensagem e chega à opção de QR Code', async () => {
+  const interpretada = { ...mensagemBase(''), midia: true, evento: 'message.any', registro: { ...registroBase, texto: '', midia: true } };
+  const transcrita = { texto: 'ingresso', midia: false, registro: { ...registroBase, texto: 'ingresso', midia: false, audio: true, transcricao: 'ok' }, audio: { eh: true, transcricao: 'ok' } };
+  const resolver = (saidas) => codigoDoNo('Resolver conversa')(nome => ({
+    isExecuted: nome in saidas, first: () => ({ json: saidas[nome] ?? {} }),
+  }), null, relogio).then(saida => saida[0].json);
+  const comAudio = await resolver({ 'Interpretar mensagem': interpretada, 'Aplicar transcrição': transcrita });
+  const qrcode = configDeTeste().opcoes.find(o => o.id === 'qrcode');
+  assert.equal(comAudio.texto, 'ingresso');
+  assert.equal(comAudio.midia, false);
+  assert.equal(comAudio.intencao, 'qrcode');
+  assert.equal(comAudio.resposta, qrcode.resposta);
+  assert.equal(comAudio.registro.audio, true);
+});
+
+test('Resolver conversa: sem transcrição executada, a mensagem de áudio segue como mídia', async () => {
+  const interpretada = { ...mensagemBase(''), midia: true, evento: 'message.any', registro: { ...registroBase, texto: '', midia: true } };
+  const resolver = (saidas, executadas) => codigoDoNo('Resolver conversa')(nome => ({
+    isExecuted: executadas.includes(nome), first: () => ({ json: saidas[nome] ?? {} }),
+  }), null, relogio).then(saida => saida[0].json);
+  const qrcode = configDeTeste().opcoes.find(o => o.id === 'qrcode');
+  const naoExecutada = await resolver({ 'Interpretar mensagem': interpretada }, []);
+  assert.equal(naoExecutada.midia, true);
+  assert.equal(naoExecutada.texto, '');
+  assert.notEqual(naoExecutada.intencao, 'qrcode');
+  assert.notEqual(naoExecutada.resposta, qrcode.resposta);
+  const ausente = await resolver({ 'Interpretar mensagem': interpretada, 'Aplicar transcrição': { texto: 'ingresso', midia: false } }, []);
+  assert.equal(ausente.midia, true, 'sem isExecuted verdadeiro, a transcrição é ignorada');
+  assert.equal(ausente.texto, '');
+});
+
+test('Consolidar envio: a memória guarda a transcrição do áudio, e áudio sem texto não vira memória', async () => {
+  const consolidar = (texto) => codigoDoNo('Consolidar envio')(nome => ({ first: () => ({ json: {
+    'Interpretar mensagem': { texto: '' },
+    'Resolver conversa': texto === undefined ? {} : { texto },
+    'Resposta final': { resposta: 'R$ 40', partes: ['R$ 40'], memoria: { ativa: true, max: 4 }, ia: {} },
+    'Redis: ler histórico': { historico: null },
+  }[nome] }) })).then(saida => saida[0].json);
+  const transcrito = await consolidar('qual o preço?');
+  assert.equal(transcrito.guardarMemoria, true);
+  assert.deepEqual(JSON.parse(transcrito.valorHistorico).map(i => [i.de, i.texto]), [['contato', 'qual o preço?'], ['bot', 'R$ 40']]);
+  const semTexto = await consolidar(undefined);
+  assert.equal(semTexto.guardarMemoria, false, 'sem texto do contato, nada é guardado');
+});
+
+test('Montar linha de log: áudio grava audio e transcricao no log de atividade; o texto transcrito só vai à conversa', async () => {
+  const final = { ...mensagemBase(''), evento: 'message.any', intencao: 'valores', origem: 'numero', resposta: 'Valores: R$ 40', ia: { usar: false } };
+  const comTexto = { ...registroBase, texto: 'TEXTO TRANSCRITO DO AUDIO', midia: false, audio: true, transcricao: 'ok' };
+  const r = await registrarConversa(final, RESPONDIDA, { 'Resposta final': final, 'Resolver conversa': { ...final, registro: comTexto } });
+  assert.equal(r.atividade.audio, true);
+  assert.equal(r.atividade.transcricao, 'ok');
+  assert.doesNotMatch(r.linha, /TEXTO TRANSCRITO/, 'o log de atividade não contém o texto transcrito');
+  assert.equal(r.conversa.texto, 'TEXTO TRANSCRITO DO AUDIO');
+  assert.equal(r.conversa.audio, true);
+  assert.equal(r.conversa.transcricao, 'ok');
+
+  for (const transcricao of ['longo', 'erro_transcricao']) {
+    const semTexto = { ...registroBase, texto: '', midia: true, audio: true, transcricao };
+    const sem = await registrarConversa(final, RESPONDIDA, { 'Resposta final': final, 'Resolver conversa': { ...final, registro: semTexto } });
+    assert.equal(sem.atividade.transcricao, transcricao);
+    assert.equal(sem.conversa.transcricao, transcricao);
+  }
+});
